@@ -1704,6 +1704,22 @@ def compose_speech(
         opponent, opponent_text = "", ""
     #: 同阵营的人被点名时不许说「我不同意」：改成顺着他的话补充
     ally = bool(opponent_text) and same_side(topic, opponent_text, pack.stance)
+    if phase == PHASE_CLASH and ally:
+        # 上一位恰好是同阵营：往前找一位对立面来交锋，
+        # 否则短会议里唯一一个交锋轮会全程「接着说」，整场一条反驳都没有。
+        for entry in reversed(list(recent or ())):  # type: ignore[arg-type]
+            if not isinstance(entry, Mapping):
+                continue
+            name = str(entry.get("speaker") or "").strip()
+            text = str(entry.get("content") or "").strip()
+            if not name or not text or name == speaker:
+                continue
+            if identify_seat(topic, text) is None:
+                # 主持人开场这类没有席位论据的发言不当作辩论对手
+                continue
+            if not same_side(topic, text, pack.stance):
+                opponent, opponent_text, ally = name, text, False
+                break
 
     if phase == PHASE_STATEMENT:
         # 只有「反驳 / 补充」才接过话头；「抢答」不该先提别人
