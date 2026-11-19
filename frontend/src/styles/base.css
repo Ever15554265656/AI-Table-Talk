@@ -1,0 +1,174 @@
+/* ============================================================
+   全局基础样式：深色演播厅基调
+   纪律：html/body/#app 高度锁死且 overflow:hidden，
+        所有滚动都发生在各区域容器内部（PRD AC-1.9 / AC-6.5）。
+   ============================================================ */
+:root {
+  color-scheme: dark;
+
+  --bg-0: #0b1020;
+  --bg-1: #111a2e;
+  --bg-2: #16213a;
+  --bg-3: #1c2947;
+  --line: #24324f;
+  --line-soft: #1b2740;
+
+  --text-0: #eaf0ff;
+  --text-1: #a9b6d3;
+  --text-2: #7384a6;
+
+  --accent: #5b9dff;
+  --accent-soft: rgba(91, 157, 255, 0.14);
+  --agree: #34d399;
+  --agree-soft: rgba(52, 211, 153, 0.12);
+  --disagree: #f87171;
+  --disagree-soft: rgba(248, 113, 113, 0.12);
+
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --shadow-1: 0 10px 28px rgba(3, 8, 20, 0.45);
+  --shadow-2: 0 4px 14px rgba(3, 8, 20, 0.35);
+
+  --font-cn: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC",
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  overflow: hidden; /* 整页不滚动，杜绝"页面级"滚动条 */
+  background:
+    radial-gradient(1100px 620px at 12% -8%, rgba(91, 157, 255, 0.16), transparent 62%),
+    radial-gradient(900px 520px at 88% 4%, rgba(167, 139, 250, 0.14), transparent 58%),
+    var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font-cn);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------- 细滚动条：只出现在容器内部 ---------- */
+.scroll-area {
+  overflow: auto;
+  overscroll-behavior: contain; /* 不把滚动链传导到页面 */
+  scrollbar-width: thin;
+  scrollbar-color: #2b3a5c transparent;
+}
+
+.scroll-area::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+  background: #2b3a5c;
+  border-radius: 999px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: #3a4d78;
+}
+
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 通用卡片 / 面板 ---------- */
+.panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(22, 33, 58, 0.92), rgba(17, 26, 46, 0.92));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  flex: none;
+}
+
+.panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 窄屏压缩面板标题栏高度，把像素让给主发言区 */
+@media (max-width: 1023px) {
+  .panel__head {
+    padding: 7px 12px;
+  }
+}
+
+.panel__hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.panel__body {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+/* ---------- Element Plus 深色对齐 ---------- */
+.el-button {
+  --el-button-font-weight: 500;
+}
+
+.el-tag {
+  --el-tag-border-radius: 999px;
+}
+
+.el-empty__description p {
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
