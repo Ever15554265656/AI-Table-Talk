@@ -10,7 +10,7 @@
 - ``done`` 是终止事件，订阅到这里即结束；``close()`` 让尚无 ``done`` 的流也能正常收尾；
 - ``Last-Event-ID`` 用 ``seq`` 水位实现「重连不重复」。
 
-五种事件（``message`` / ``status`` / ``consensus`` / ``phase`` / ``done``）都以
+六种事件（``message`` / ``status`` / ``consensus`` / ``phase`` / ``done``）都以
 ``schemas.SseEvent`` 判别联合的形式入队，本模块不校验也不改写事件内容。
 """
 

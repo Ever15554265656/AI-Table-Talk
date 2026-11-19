@@ -1,22 +1,29 @@
 """流程 1/6：阵容生成（LLM → JSON → 校验 → 落库）。
 
-三条规则：
-1. 一次返回「主持人 + N 位专家」，**数组第 1 个对象即主持人**，服务端按位置置 ``is_host``；
-2. 颜色由服务端按 ``PANEL_COLOR_PALETTE`` 顺序分配，忽略模型自带的颜色（防串色、保证同场唯一）；
-3. 落库后状态保持 ``created``，等待用户确认 —— 阵容生成不等于开演。
+四条规则：
+1. **按议题选角**：入参必须是完整议题文本（``topic``），它同时用于 Prompt 与 Mock 生成的
+   议题域判定 —— 不给议题就退化成「固定职业池」，阵容会和议题完全脱节；
+2. 一次返回「主持人 + N 位专家」，**数组第 1 个对象即主持人**，服务端按位置置 ``is_host``；
+3. 颜色由服务端按 ``PANEL_COLOR_PALETTE`` 顺序分配，忽略模型自带的颜色（防串色、保证同场唯一）；
+4. 立场必须「不一边倒」：专家立场全员同向时重试一次，仍不合格只记警告（不阻断用户流程）。
 
-Prompt 只负责「怎么选人、怎么输出 JSON」，本模块负责其余全部逻辑（校验、去重、配色、落库）。
+落库后状态保持 ``created``，等待用户确认 —— 阵容生成不等于开演。
 """
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend import topics
 from backend.config import PANEL_COLOR_PALETTE
 from backend.flows.parsing import loads_json
 from backend.flows.prompts import LINEUP_PROMPT
 from backend.llm import SCENE_LINEUP, LLMClient, get_llm
 from backend.models import DiscussionSession, Expert
+
+logger = logging.getLogger(__name__)
 
 #: 席位字段白名单：其余字段（含模型自报的 ``is_host``）一律丢弃
 SEAT_FIELDS = ("name", "profession", "title", "stance", "color")
@@ -74,28 +81,55 @@ def _palette_colors(count: int) -> list[str]:
     return palette[:count]
 
 
-def build_lineup_payload(session: DiscussionSession) -> dict[str, object]:
-    """组装阵容生成的 user message 数据（议题 / 人数 / 调色板）。"""
+def _experts_stance_labels(seats: list[_Seat]) -> list[str]:
+    """取专家席位（第 1 席主持人除外）的立场标签，用于「不一边倒」校验。"""
+    return [topics.stance_label(seat.stance) for seat in seats[1:]]
+
+
+def build_lineup_payload(
+    session: DiscussionSession, topic: str | None = None
+) -> dict[str, object]:
+    """组装阵容生成的 user message 数据（**完整议题** / 议题域提示 / 人数 / 调色板）。"""
+    topic_text = (session.topic if topic is None else topic) or ""
+    domain = topics.detect_domain(topic_text)
     return {
-        "topic": session.topic,
+        "topic": topic_text,
+        # 议题域提示：告诉模型「这题该往哪个领域选人」，Mock 侧共用同一套判定
+        "domain": domain.label,
+        "keywords": topics.match_keywords(topic_text, domain),
         "expert_count": session.expert_count,
         "palette": list(PANEL_COLOR_PALETTE),
     }
 
 
 def generate_lineup(
-    db, session: DiscussionSession, *, client: LLMClient | None = None
+    db,
+    session: DiscussionSession,
+    *,
+    topic: str | None = None,
+    client: LLMClient | None = None,
 ) -> list[Expert]:
-    """生成并按 ``session_id`` 落库阵容，返回新建的席位（主持人排第一）。"""
+    """按**完整议题**生成阵容并落库，返回新建的席位（主持人排第一）。"""
     llm = client or get_llm()
     expected = session.expert_count + 1
+    payload = build_lineup_payload(session, topic)
 
-    raw = llm.complete(
-        scene=SCENE_LINEUP,
-        prompt=LINEUP_PROMPT,
-        payload=build_lineup_payload(session),
-    )
+    raw = llm.complete(scene=SCENE_LINEUP, prompt=LINEUP_PROMPT, payload=payload)
     seats = _parse_seats(raw, expected)
+
+    # 立场一边倒（全员支持 / 全员反对）时重试一次：这类阵容吵不起来，
+    # 属于「体验硬伤」；重试仍不合格只记警告，避免阻断用户流程。
+    if not topics.stance_spread(_experts_stance_labels(seats)):
+        logger.warning("会话 %s 的阵容立场一边倒，带强调重试一次", session.id)
+        retry_payload = {
+            **payload,
+            "stance_requirement": "上一版阵容全员同一立场，本次必须让支持 / 反对 / 中立同时出现",
+        }
+        raw = llm.complete(scene=SCENE_LINEUP, prompt=LINEUP_PROMPT, payload=retry_payload)
+        seats = _parse_seats(raw, expected)
+        if not topics.stance_spread(_experts_stance_labels(seats)):
+            logger.warning("会话 %s 的阵容重试后仍然一边倒，按模型结果继续", session.id)
+
     colors = _palette_colors(expected)
 
     # 重新生成语义：先清掉旧席位（created 阶段还没有发言，删除不会牵连 messages）

@@ -43,6 +43,59 @@ export const EXPERT_STATES = [
 export const STATE_LABEL = Object.fromEntries(EXPERT_STATES.map((s) => [s.key, s.label]))
 export const STATE_TAG_TYPE = Object.fromEntries(EXPERT_STATES.map((s) => [s.key, s.tagType]))
 
+/**
+ * 专家卡片上给观众看的四档状态（本轮要求）：
+ * 聆听中 | 正在发言 | 已发言 | 已总结。
+ *
+ * 与后端三态的关系：``preparing`` 也显示成「正在发言」（观众不需要看到内部的两步），
+ * ``idle`` 再按发言次数分成「聆听中 / 已发言」，讨论结束后所有人统一为「已总结」。
+ */
+export const SEAT_STATE = {
+  LISTENING: 'listening',
+  SPEAKING: 'speaking',
+  SPOKEN: 'spoken',
+  SUMMARIZED: 'summarized',
+}
+
+export const SEAT_STATE_LABEL = {
+  listening: '聆听中',
+  speaking: '正在发言',
+  spoken: '已发言',
+  summarized: '已总结',
+}
+
+export const SEAT_STATE_TAG_TYPE = {
+  listening: 'info',
+  speaking: 'danger',
+  spoken: 'success',
+  summarized: 'success',
+}
+
+/** 立场标签三档（与后端 stance 文案前缀对应），用于卡片上的立场 tag */
+export const STANCE_TAG_TYPE = {
+  支持: 'success',
+  反对: 'danger',
+  中立: 'info',
+}
+
+export function stanceTagLabel(stance) {
+  const text = String(stance || '').trim()
+  if (!text) return '中立'
+  if (text.startsWith('有条件中立') || text.startsWith('中立')) return '中立'
+  if (text.startsWith('支持')) return '支持'
+  if (text.startsWith('反对')) return '反对'
+  return '中立'
+}
+
+/**
+ * 待机席位的细分文案：还没接过话筒 vs 已经发过言。
+ * 后端三态只有 idle，但观众需要一眼看出「他在听」而不是「他掉线了」。
+ */
+export const IDLE_LABEL = {
+  waiting: '等待发言',
+  listening: '聆听中',
+}
+
 /** 无公开关注点时的占位文案（AC-4.3：不留空白） */
 export const FOCUS_PLACEHOLDER = '旁观中…'
 
@@ -55,11 +108,11 @@ export const HOST_BEHAVIOR_LABEL = {
 }
 
 /** 打字机速率（毫秒/字） */
-export const TYPE_INTERVAL_MS = 26
+export const TYPE_INTERVAL_MS = 40
 /** 一条发言结束后，席位回到"待机"前的停顿 */
 export const SPEAKING_TAIL_MS = 700
 /** 两位发言人之间的间隔 */
-export const MESSAGE_GAP_MS = 520
+export const MESSAGE_GAP_MS = 950
 /** "准备发言"到"发言中"的间隔 */
 export const PREPARING_MS = 480
 

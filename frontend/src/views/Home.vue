@@ -4,7 +4,7 @@
  *
  * 数据全部来自后端：
  *   GET  /api/sessions → 列表（含 expert_total / message_count）
- *   POST /api/sessions → 建会话 + 服务端生成阵容，成功后直接进入演播厅（自动开演）
+ *   POST /api/sessions → 建会话 + 服务端生成阵容，成功后进入**阵容确认页**（PRD US-1）
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -82,10 +82,11 @@ async function submit() {
   submitting.value = true
   try {
     const created = await createSession({ topic: payload.topic, expert_count: payload.count })
-    ElMessage.success(`已生成 ${created.expert_total} 个席位（含 1 位主持人），正在进入演播厅`)
+    ElMessage.success(`已生成 ${created.expert_total} 个席位（含 1 位主持人），请确认阵容`)
     form.topic = ''
     form.expert_count = DEFAULT_EXPERT_COUNT
-    router.push({ name: 'studio', params: { id: created.id }, query: { mode: 'live' } })
+    // US-1：先停在确认页，确认后再开演（US-3）
+    router.push({ name: 'lineup', params: { id: created.id } })
   } catch (err) {
     ElMessage.error(err?.message || '发起讨论失败')
   } finally {
@@ -94,10 +95,11 @@ async function submit() {
 }
 
 function open(item) {
+  // AC-1.5：ready(created) → 确认页；live → 演播厅旁听；ended → 只读回看
   router.push({
-    name: 'studio',
+    name: item.status === 'created' ? 'lineup' : 'studio',
     params: { id: item.id },
-    query: { mode: item.status === 'ended' ? 'replay' : 'live' },
+    query: item.status === 'created' ? {} : { mode: item.status === 'ended' ? 'replay' : 'live' },
   })
 }
 
@@ -228,7 +230,7 @@ function showReplay() {
           <el-button type="primary" class="home__submit" :loading="submitting" :icon="Plus" @click="submit">
             发起讨论
           </el-button>
-          <p class="home__note">发起后自动生成阵容并进入演播厅，讨论随即开演。</p>
+          <p class="home__note">发起后先生成阵容，确认阵容后进入演播厅开演。</p>
         </div>
       </aside>
     </main>
@@ -271,14 +273,14 @@ function showReplay() {
 }
 
 .home__title {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .home__subtitle {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--text-2);
 }
 
@@ -286,13 +288,13 @@ function showReplay() {
   display: flex;
   align-items: center;
   gap: 14px;
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--text-1);
 }
 
 .stat b {
   margin-right: 2px;
-  font-size: 15px;
+  font-size: 17px;
   color: var(--text-0);
 }
 
@@ -359,7 +361,7 @@ function showReplay() {
 }
 
 .session__topic {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -372,7 +374,7 @@ function showReplay() {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--text-2);
 }
 
@@ -406,7 +408,7 @@ function showReplay() {
 }
 
 .field__label {
-  font-size: 12px;
+  font-size: 13.5px;
   letter-spacing: 0.04em;
   color: var(--text-1);
 }
@@ -424,7 +426,7 @@ function showReplay() {
 }
 
 .field__tip {
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--text-2);
 }
 
@@ -433,7 +435,7 @@ function showReplay() {
 }
 
 .home__note {
-  font-size: 12px;
+  font-size: 13.5px;
   text-align: center;
   color: var(--text-2);
 }
@@ -466,7 +468,7 @@ function showReplay() {
   }
 
   .home__title {
-    font-size: 18px;
+    font-size: 21px;
   }
 
   .home__subtitle {
@@ -494,7 +496,7 @@ function showReplay() {
   }
 
   .session__topic {
-    font-size: 14px;
+    font-size: 16px;
     white-space: normal;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -504,4 +506,5 @@ function showReplay() {
   }
 }
 </style>
+
 

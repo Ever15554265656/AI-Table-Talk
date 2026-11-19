@@ -63,7 +63,8 @@ async def create_session(payload: SessionCreate) -> SessionDetail:
         db.commit()
 
         try:
-            generate_lineup(db, session)
+            # 显式传入完整议题：阵容必须按议题选角，不能只依赖建会话时写库的字段
+            generate_lineup(db, session, topic=session.topic)
         except LineupError as exc:
             # 阵容失败不留下「空壳会话」，避免首页出现无法开演的条目
             db.delete(session)

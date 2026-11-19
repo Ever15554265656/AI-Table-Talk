@@ -21,6 +21,7 @@ import PhaseBar from '@/components/PhaseBar.vue'
 import SpeakerBubble from '@/components/SpeakerBubble.vue'
 import StatusWindow from '@/components/StatusWindow.vue'
 import SummaryPanel from '@/components/SummaryPanel.vue'
+import TypingBubble from '@/components/TypingBubble.vue'
 import { SESSION_STATUS_LABEL } from '@/constants'
 import { useDiscussionStream } from '@/composables/useDiscussionStream'
 
@@ -47,6 +48,7 @@ const {
   loading,
   error,
   typedLength,
+  typing,
   toggle,
   endNow,
   reconnect,
@@ -99,10 +101,22 @@ const isReplay = computed(() => instant.value || session.value?.status === 'ende
 /** 只读态标签：真·回看 vs 刚刚播完 */
 const readOnlyLabel = computed(() => (instant.value ? '只读回看' : '讨论已结束'))
 const statusLabel = computed(() => SESSION_STATUS_LABEL[session.value?.status] ?? '')
+/** 「正在发言」提示：回看 / 已结束时一律不显示 */
+const typingSeat = computed(() => {
+  if (!typing.value || isReplay.value || finished.value) return null
+  const expert = experts.value.find((item) => item.id === typing.value.expert_id)
+  return {
+    ...typing.value,
+    color: expert?.color ?? '#60A5FA',
+    role: expert ? `${expert.profession} · ${expert.title}` : '',
+    isHost: Boolean(expert?.is_host),
+  }
+})
 const streamHint = computed(() => {
   if (!session.value) return ''
   if (finished.value) return '讨论已结束'
   if (!playing.value) return '已暂停渲染'
+  if (typingSeat.value) return `${typingSeat.value.expert_name} 正在发言…`
   const speaker = panelists.value.find((item) => item.state === 'speaking')
   return speaker ? `${speaker.name} 正在输出…` : '等待下一位…'
 })
@@ -186,6 +200,17 @@ const messageCount = computed(() => items.value.length)
           <span class="panel__hint">{{ streamHint }}</span>
         </header>
 
+        <!-- 「正在发言」提示条：typing 事件一到就亮，正文落屏后自动退场 -->
+        <div
+          v-if="typingSeat"
+          class="studio__typing"
+          :style="{ '--seat-color': typingSeat.color }"
+        >
+          <span class="studio__typing-dot" aria-hidden="true" />
+          <span class="studio__typing-name">{{ typingSeat.expert_name }}</span>
+          <span class="studio__typing-text">{{ typingSeat.label || '正在发言' }}…</span>
+        </div>
+
         <div
           ref="stageRef"
           class="studio__stage-body scroll-area"
@@ -200,8 +225,17 @@ const messageCount = computed(() => items.value.length)
             :is-host="item.expert_id === hostId"
           />
 
+          <!-- 占位卡片：发言完成后被正式气泡替换 -->
+          <TypingBubble
+            v-if="typingSeat"
+            :typing="typingSeat"
+            :color="typingSeat.color"
+            :role="typingSeat.role"
+            :is-host="typingSeat.isHost"
+          />
+
           <el-empty
-            v-if="!items.length"
+            v-if="!items.length && !typingSeat"
             description="等待主持人开场…"
             :image-size="72"
             class="studio__empty"
@@ -222,7 +256,12 @@ const messageCount = computed(() => items.value.length)
         </transition>
       </section>
 
-      <StatusWindow class="studio__status" :experts="panelists" :phase="phase" />
+      <StatusWindow
+        class="studio__status"
+        :experts="panelists"
+        :phase="phase"
+        :finished="finished || isReplay"
+      />
 
       <div class="studio__insights">
         <ConsensusPanel
@@ -268,7 +307,7 @@ const messageCount = computed(() => items.value.length)
 }
 
 .studio__topic {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -280,7 +319,7 @@ const messageCount = computed(() => items.value.length)
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
 }
 
@@ -301,7 +340,7 @@ const messageCount = computed(() => items.value.length)
   min-height: 0;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(0, 1fr) 280px 384px;
+  grid-template-columns: minmax(0, 1fr) 300px 400px;
   grid-template-areas: 'stage status insights';
 }
 
@@ -353,6 +392,50 @@ const messageCount = computed(() => items.value.length)
   overscroll-behavior: contain;
 }
 
+/* 「正在发言」提示条：贴在发言区顶部，不占滚动内容 */
+.studio__typing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--seat-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--seat-color) 34%, transparent);
+}
+
+.studio__typing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat-color);
+  animation: typing-pulse 1.2s ease-in-out infinite;
+}
+
+.studio__typing-name {
+  font-weight: 700;
+  color: var(--seat-color);
+}
+
+.studio__typing-text {
+  color: var(--text-1);
+}
+
+@keyframes typing-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
 .studio__empty {
   margin: auto 0;
 }
@@ -396,7 +479,7 @@ const messageCount = computed(() => items.value.length)
   }
 
   .studio__topic {
-    font-size: 14px;
+    font-size: 17px;
     white-space: normal;
     display: -webkit-box;
     -webkit-line-clamp: 1;

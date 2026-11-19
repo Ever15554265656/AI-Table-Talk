@@ -20,6 +20,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{(_TMP_DIR / 'test.db').as_posix()}"
 os.environ["MOCK_MODE"] = "1"
 os.environ["MOCK_LATENCY_MS"] = "0"
 os.environ["SPEAK_INTERVAL_SECONDS"] = "0"
+#: 真人节奏的「思考停顿」同样压到 0，用例不因表演节奏变慢
+os.environ["THINK_INTERVAL_SECONDS"] = "0"
 #: 轮次上限取配置允许的最小值，让 SSE 用例在亚秒级跑完
 os.environ["MAX_ROUNDS"] = "6"
 

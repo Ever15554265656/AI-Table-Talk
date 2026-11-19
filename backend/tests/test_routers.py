@@ -191,6 +191,7 @@ async def test_stream_endpoint_runs_discussion_once(db, seeded):
         "status",
         "consensus",
         "phase",
+        "typing",
         "done",
     }
     assert events[-1].event == "done"

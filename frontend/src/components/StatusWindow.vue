@@ -1,7 +1,8 @@
 <script setup>
 /**
- * 右侧专家状态小窗区：主持人置顶（主持台），其余专家按席位顺序排列。
- * 每一张小窗都是独立组件，三态与关注点来自同一份 panelists 状态树。
+ * 右侧席位状态区：**主持人与专家同一套卡片、同一尺寸**，按席位顺序排列。
+ * 每一张卡片都来自同一份 panelists 状态树，四档状态（聆听中 / 正在发言 / 已发言 / 已总结）
+ * 由 ExpertCard 统一推导，这里只负责排序与整体提示。
  */
 import { computed } from 'vue'
 
@@ -13,26 +14,43 @@ const props = defineProps({
   experts: { type: Array, default: () => [] },
   /** 当前阶段，用于推导主持台行为标签（AC-4.8） */
   phase: { type: String, default: 'opening' },
+  /** 整场是否已结束（结束后全员显示「已总结」） */
+  finished: { type: Boolean, default: false },
 })
 
 const host = computed(() => props.experts.find((item) => item.is_host) ?? null)
 const guests = computed(() => props.experts.filter((item) => !item.is_host))
 const hostBehavior = computed(() => HOST_BEHAVIOR_LABEL[props.phase] ?? '')
-const speakingName = computed(
-  () => props.experts.find((item) => item.state === 'speaking')?.name ?? '',
-)
+const hint = computed(() => {
+  if (props.finished) return '讨论已结束'
+  const speaking = props.experts.find((item) => item.state === 'speaking')
+  if (speaking) return `${speaking.name} 正在发言`
+  const preparing = props.experts.find((item) => item.state === 'preparing')
+  if (preparing) return `${preparing.name} 正在组织语言…`
+  return '全员聆听中'
+})
 </script>
 
 <template>
   <section class="status-window panel">
     <header class="panel__head">
       <span class="panel__title">专家状态</span>
-      <span class="panel__hint">{{ speakingName ? `${speakingName} 正在输出` : '全员待机' }}</span>
+      <span class="panel__hint">{{ hint }}</span>
     </header>
 
     <div class="status-window__body scroll-area">
-      <ExpertCard v-if="host" :expert="host" :host-behavior="hostBehavior" />
-      <ExpertCard v-for="expert in guests" :key="expert.id" :expert="expert" />
+      <ExpertCard
+        v-if="host"
+        :expert="host"
+        :finished="finished"
+        :host-behavior="hostBehavior"
+      />
+      <ExpertCard
+        v-for="expert in guests"
+        :key="expert.id"
+        :expert="expert"
+        :finished="finished"
+      />
     </div>
   </section>
 </template>

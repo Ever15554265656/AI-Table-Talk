@@ -23,6 +23,10 @@
 set MOCK_MODE=true                 # PowerShell: $env:MOCK_MODE='true'
 python scripts/init_db.py          # 建表 + 演示数据
 uvicorn backend.main:app --port 8000
+
+# 也可以直接进 backend 目录启动（两种方式都支持，见 backend/main.py 顶部说明）
+cd backend
+uvicorn main:app --reload --port 8000
 ```
 
 前端：
@@ -46,7 +50,7 @@ VITE_API_TARGET=http://127.0.0.1:8765 npm run dev
 ```
 src/
 ├─ main.js               # 入口：Element Plus 全量 + zh-cn 语言包
-├─ router/index.js       # / 首页；/studio/:id 演播厅（直播 / 回看共用）
+├─ router/index.js       # / 首页；/lineup/:id 阵容确认；/studio/:id 演播厅（直播 / 回看共用）
 ├─ constants.js          # 阶段 / 三态 / 状态文案 / 调色板 / 表单约束（唯一文案字典）
 ├─ api/client.js         # REST 客户端：listSessions / createSession / getSession / listMessages / listInsights / streamUrl
 ├─ composables/useDiscussionStream.js  # SSE 归约 + 打字机 + round 去重（直播 / 回看共用）
@@ -60,6 +64,7 @@ src/
 │  ├─ SummaryPanel.vue   # 主持人总结（done 事件里的 SummaryOut.sections）
 │  └─ PhaseBar.vue       # 阶段指示条：开场 / 自由讨论 / 收尾 / 已结束 + 轮次进度
 ├─ views/Home.vue        # 进行中 / 已结束列表 + 发起讨论表单 + 回看入口
+├─ views/Lineup.vue      # 阵容确认页：主持台置顶 + 专家席（立场 / 配色均来自后端）
 ├─ views/Studio.vue      # 演播厅：三块区域独立滚动 + 三档响应式 + 控制条
 └─ styles/base.css       # 深色基调、面板、细滚动条；body 永不滚动
 ```
@@ -83,10 +88,25 @@ src/
 
 ## 未完成（下一步）
 
-- 阵容确认页（依赖后端 `lineup` / `regenerate` / `confirm`，当前未实现 → 发起后直接开演）。
+- 阵容确认页的「重新生成」（依赖后端 `regenerate`；当前确认页只做前端确认门，不改后端状态）。
 - 暂停 / 继续 / 结束讨论（依赖后端 `pause` / `resume` / `end`）；当前「暂停」只冻结前端打字机。
 - 回看页的总结卡片（依赖后端持久化总结 + `GET /summary`）。
 - 共识条目点击定位 Transcript（AC-5.8）。
+
+## 端到端测试（Playwright）
+
+`e2e/` 下是 Python 版 Playwright 用例，`conftest.py` 自动拉起 **Mock 后端（uvicorn）+ 前端（vite dev）**，
+结束后按进程树回收；浏览器默认复用系统 Edge（`channel=msedge`），**无需** `playwright install`。
+
+```bash
+# 仓库根目录；Mock 模式 + 独立临时库，零模型调用
+.\venv\Scripts\python.exe -m pytest e2e -q
+# 失败时补截图：--screenshot=only-on-failure
+# 服务日志：e2e/.artifacts/{uvicorn,vite}.log
+```
+
+- `test_full_flow.py`：发起讨论 → 阵容页确认 → 演播厅 → 主持人开场 → ≥5 条发言 → 共识有内容 → 讨论结束。
+- `test_isolation.py`：两场不同话题跑完 → 打开第二场回看 → 断言第一场的议题 / 独有专家 / session_id / 发言与共识条目均未混入。
 
 ## 端到端冒烟（可选）
 

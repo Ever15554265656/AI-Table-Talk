@@ -19,6 +19,10 @@ node_modules/
 dist/
 *.log
 
+# E2E 产物（服务日志 / 临时库 / 失败截图）
+e2e/.artifacts/
+test-results/
+
 # 编辑器 / 系统
 .vscode/
 .idea/

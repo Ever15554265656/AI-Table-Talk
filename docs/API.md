@@ -222,21 +222,21 @@ data: {"session_id":"smp-open-model","seq":13,"ts":"2026-11-19T05:01:33","event"
 ```
 
 - `id:` = 事件信封的 `seq`（会话内单调递增，从 1 开始），即重放锚点；
-- `event:` = 五种事件名之一，与前端 `source.addEventListener(name, ...)` 一一对应；
+- `event:` = 六种事件名之一，与前端 `source.addEventListener(name, ...)` 一一对应；
 - `data:` 只有一行，UTF-8 JSON，**不含换行**（`ensure_ascii=False`，中文直出）；
 - 帧之间以空行分隔；解析实现见 `backend/schemas.py::encode_sse` / `decode_sse_data`。
 
-### 5.3 事件信封（五种事件共有）
+### 5.3 事件信封（六种事件共有）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `event` | `string` | `message` / `status` / `consensus` / `phase` / `done` |
+| `event` | `string` | `message` / `status` / `consensus` / `phase` / `typing` / `done` |
 | `session_id` | `string` | 所属讨论，前端必须校验等于当前房间，否则丢弃 |
 | `seq` | `int` | 会话内递增序号，≥1；同时是 SSE `id:` |
 | `ts` | `string` | 事件生成时间（UTC ISO8601） |
 | `data` | `object` | 该事件的业务负载（见下） |
 
-### 5.4 五种事件
+### 5.4 六种事件
 
 #### ① `message` —— 一条可见发言（唯一会写入 `messages` 表的事件）
 
@@ -319,18 +319,38 @@ data: {"session_id":"smp-open-model","seq":13,"ts":"2026-11-19T05:01:33","event"
 | `data` 字段 | 类型 | 说明 |
 |---|---|---|
 | `phase` | `opening` \| `debate` \| `wrap_up` | 开场 / 交锋 / 收尾 |
-| `round` | `int` | 当前轮次，≥0 |
-| `max_rounds` | `int` | 轮次上限（来自 `settings.max_rounds`） |
+| `round` | `int` | 当前轮次，≥0（**一轮 = 全体专家各发言一次**，主持人只开场 / 收尾） |
+| `max_rounds` | `int` | 本场轮次总数（由发言条数预算按席位数换算，不是发言条数） |
 
 ```json
 {
   "session_id": "smp-open-model", "seq": 1, "ts": "2026-11-19T05:01:33",
   "event": "phase",
-  "data": { "phase": "opening", "round": 0, "max_rounds": 20 }
+  "data": { "phase": "opening", "round": 0, "max_rounds": 5 }
 }
 ```
 
-#### ⑤ `done` —— 讨论结束（终止事件）
+#### ⑤ `typing` —— 「谁正在发言」（直播态提示）
+
+| `data` 字段 | 类型 | 说明 |
+|---|---|---|
+| `expert_id` | `string` | 即将发言的席位 |
+| `expert_name` | `string` | 姓名（前端直接念出来） |
+| `round` | `int` | 当前轮次，≥0（开场 / 收尾为 0 或最后一轮） |
+| `label` | `string` | 展示文案：`正在发言` / `正在开场` / `正在总结` |
+
+```json
+{
+  "session_id": "smp-open-model", "seq": 12, "ts": "2026-11-19T05:02:10",
+  "event": "typing",
+  "data": { "expert_id": "smp-open-model-p02", "expert_name": "郑弈", "round": 2, "label": "正在发言" }
+}
+```
+
+前端处理：`typing` 一到就亮「正在发言」占位卡（发言流顶部 + 专家卡片高亮），
+随后同一位的 `message` 到达时替换成正式气泡；**回看（`ended`）不显示**。
+
+#### ⑥ `done` —— 讨论结束（终止事件）
 
 | `data` 字段 | 类型 | 说明 |
 |---|---|---|
@@ -364,11 +384,15 @@ sequenceDiagram
     participant F as 前端
     S->>C: status（该席位 preparing，带 focus）
     C->>F: status
+    S->>C: typing（宣布「谁正在发言」）
+    C->>F: typing（发言流顶部亮起占位卡）
+    S->>C: status（该席位 speaking）
+    C->>F: status（专家卡片高亮）
     S->>C: message（发言落库后立即推送）
-    C->>F: message（按 round 去重后追加）
+    C->>F: message（占位卡替换为正式气泡，按 round 去重）
     S->>C: status（该席位回到 idle）
     S->>C: consensus（每 INSIGHT_EVERY_N_MESSAGES 条发言刷新一次）
-    S->>C: phase（进入 wrap_up 时）
+    S->>C: phase（每一轮开头 / 进入 wrap_up 时）
     S->>C: done（总结就绪后关闭连接）
 ```
 

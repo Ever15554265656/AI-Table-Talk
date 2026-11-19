@@ -1,7 +1,7 @@
 """TDD 用例：SSE 事件流（PRD AC-13.x / docs/API.md §5）。
 
 断言契约级行为，而不是实现细节：
-- 一次连接内推出 ``message`` / ``status`` / ``consensus`` / ``phase`` / ``done`` 五种事件；
+- 一次连接内推出 ``message`` / ``status`` / ``consensus`` / ``phase`` / ``typing`` / ``done`` 六种事件；
 - ``seq`` 从 1 连续递增（同时作为 SSE ``id``，供 ``Last-Event-ID`` 重放）；
 - 结束事件为 ``ended``；
 - 「看到的」与「存下的」一致：可见发言全部落库，内部事件（举手）一条都没有。
@@ -15,10 +15,10 @@ from backend.main import app
 from backend.models import Message, SessionStatus
 from backend.tests.helpers import parse_sse_frames
 
-EXPECTED_EVENT_TYPES = {"message", "status", "consensus", "phase", "done"}
+EXPECTED_EVENT_TYPES = {"message", "status", "consensus", "phase", "typing", "done"}
 
 
-async def test_stream_emits_all_five_event_types(db, seeded):
+async def test_stream_emits_all_event_types(db, seeded):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get(

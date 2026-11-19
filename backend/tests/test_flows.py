@@ -13,9 +13,12 @@ from __future__ import annotations
 
 from backend.flows.opening import build_opening_payload, generate_opening
 from backend.flows.speaking import (
+    RECENT_SPEECH_LIMIT,
     SPEECH_MAX_LEN,
     build_speech_payload,
+    count_own_speeches,
     generate_speech,
+    load_recent_speeches,
 )
 from backend.flows.summary import (
     SUMMARY_HEADINGS,
@@ -174,3 +177,103 @@ async def test_generate_summary_degrades_without_enough_paragraphs(db, seeded):
     assert summary.degraded is True
     assert summary.sections
     assert all(section.body for section in summary.sections)
+
+
+def test_speech_payload_carries_recent_history(db, seeded):
+    """发言 payload 必须带最近 3 条发言（按轮次升序）：没有上文，模型只能输出模板句。"""
+    seed_messages(
+        db,
+        seeded.session,
+        [seeded.guests[0], seeded.guests[1], seeded.guests[2], seeded.host],
+        [
+            "四天工作制先替代掉的是重复劳动，岗位会被重排。",
+            "我不同意，交付节奏一压缩，人力并没有省下来。",
+            "补一句：评审和沟通环节反而更吃人。",
+            "先停一下，请各位把成本具体化。",
+        ],
+    )
+    decision = TurnDecision(
+        expert_id=seeded.guests[0].id,
+        expert_name=seeded.guests[0].name,
+        intent="反驳",
+        reply_to_name=seeded.host.name,
+        focus="把成本落在谁头上说清楚",
+    )
+
+    recent = load_recent_speeches(db, seeded.session)
+    payload = build_speech_payload(
+        seeded.session, seeded.guests[0], decision, turn=5, recent=recent
+    )
+
+    assert len(recent) == RECENT_SPEECH_LIMIT
+    assert [item["speaker"] for item in recent] == [
+        seeded.guests[1].name,
+        seeded.guests[2].name,
+        seeded.host.name,
+    ]
+    assert payload["recent"] == recent
+    assert payload["recent"][-1]["content"].startswith("先停一下")
+
+
+def test_speech_payload_carries_own_spoken_count(db, seeded):
+    """payload 要带「本人已发言次数」：模型靠它避开复读自己上一轮。"""
+    seed_messages(
+        db,
+        seeded.session,
+        [seeded.guests[0], seeded.guests[1], seeded.guests[0]],
+        [
+            "工时不降、考核不改，四天制只会变成五天压成四天干。",
+            "交付节奏一压缩，客户响应先崩。",
+            "我先补一句：排班细则不写清楚，弹性就是空话。",
+        ],
+    )
+    decision = TurnDecision(
+        expert_id=seeded.guests[0].id,
+        expert_name=seeded.guests[0].name,
+        intent="补充",
+        reply_to_name=seeded.guests[1].name,
+        focus="把排班细则讲具体",
+    )
+
+    payload = build_speech_payload(
+        seeded.session,
+        seeded.guests[0],
+        decision,
+        turn=4,
+        recent=load_recent_speeches(db, seeded.session),
+        spoken_count=count_own_speeches(db, seeded.session, seeded.guests[0]),
+    )
+
+    assert payload["spoken_count"] == 2
+    assert count_own_speeches(db, seeded.session, seeded.guests[2]) == 0
+
+
+async def test_generate_speech_with_db_reads_history(db, llm, seeded):
+    """传了 ``db`` 就带上历史；历史为空时不报错（开场后的第一句）。"""
+    decision = TurnDecision(
+        expert_id=seeded.guests[0].id,
+        expert_name=seeded.guests[0].name,
+        intent="抢答",
+        reply_to_name="",
+        focus="先给一个判断",
+    )
+
+    first = await generate_speech(
+        seeded.session, seeded.guests[0], decision, turn=1, db=db, client=llm
+    )
+    assert first and len(first) <= SPEECH_MAX_LEN
+
+    # 真实流程会把上一句落库：这里照样落库，第二次开口才有上文、也有 spoken_count
+    seed_messages(
+        db,
+        seeded.session,
+        [seeded.host, seeded.guests[0]],
+        ["今天只讨论一个问题：成本由谁承担。", first],
+    )
+    second = await generate_speech(
+        seeded.session, seeded.guests[0], decision, turn=2, db=db, client=llm
+    )
+
+    assert second and len(second) <= SPEECH_MAX_LEN
+    assert second != first, "已经开过口之后不能复读自己上一句"
+

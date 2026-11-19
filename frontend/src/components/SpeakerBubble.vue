@@ -92,13 +92,13 @@ const props = defineProps({
 
 .bubble__name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--speaker-color);
   letter-spacing: 0.01em;
 }
 
 .bubble__role {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2);
 }
 
@@ -109,8 +109,8 @@ const props = defineProps({
 }
 
 .bubble__text {
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 16px;
+  line-height: 1.8;
   color: var(--text-0);
   word-break: break-word;
   white-space: pre-wrap;

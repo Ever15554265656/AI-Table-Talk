@@ -127,7 +127,7 @@ onBeforeUnmount(() => clearTimeout(freshTimer))
 
 .consensus__label {
   flex: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.06em;
   padding-left: 8px;
@@ -176,7 +176,7 @@ onBeforeUnmount(() => clearTimeout(freshTimer))
 }
 
 .insight__text {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.62;
   color: var(--text-0);
   word-break: break-word;
@@ -193,7 +193,7 @@ onBeforeUnmount(() => clearTimeout(freshTimer))
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-1);
 }
 
@@ -204,7 +204,7 @@ onBeforeUnmount(() => clearTimeout(freshTimer))
 }
 
 .consensus__empty {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
   padding: 6px 2px;
 }

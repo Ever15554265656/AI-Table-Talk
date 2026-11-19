@@ -60,7 +60,7 @@ const degraded = computed(() => Boolean(props.summary?.degraded))
 }
 
 .summary__heading {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -68,14 +68,14 @@ const degraded = computed(() => Boolean(props.summary?.degraded))
 }
 
 .summary__text {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.68;
   color: var(--text-0);
   word-break: break-word;
 }
 
 .summary__empty {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
   padding: 4px 2px;
 }

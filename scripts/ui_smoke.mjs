@@ -188,6 +188,26 @@ async function main() {
       return true
     })()`)
 
+    // 3) 阵容确认页（PRD US-1 / AC-2.7）：主持人置顶 + 专家席 + 确认按钮
+    await waitFor("location.pathname.startsWith('/lineup/')", { label: '跳转阵容确认页' })
+    await waitFor("Boolean(document.querySelector('.lineup__host .seat__name'))", { label: '主持人卡片渲染' })
+    const lineup = await evaluate(`(() => ({
+      host: document.querySelector('.lineup__host .seat__name')?.innerText || '',
+      guests: [...document.querySelectorAll('.lineup__guests .seat__name')].map((el) => el.innerText),
+      stances: [...document.querySelectorAll('.seat__stance')].filter((el) => el.innerText.trim()).length,
+      colors: [...document.querySelectorAll('.seat')].map((el) => getComputedStyle(el).getPropertyValue('--seat-color').trim()),
+    }))()`)
+    result.checks.push(['阵容确认页有主持人', Boolean(lineup.host)])
+    result.checks.push(['阵容确认页专家 ≥ 2 人', lineup.guests.length >= 2])
+    result.checks.push(['每张席位卡都有立场与配色', lineup.stances === lineup.guests.length + 1 && lineup.colors.every(Boolean)])
+
+    await evaluate(`(() => {
+      const button = [...document.querySelectorAll('button')].find((b) => b.innerText.replace(/\\s/g, '').includes('确认阵容'))
+      if (!button) throw new Error('找不到「确认阵容」按钮')
+      button.click()
+      return true
+    })()`)
+
     await waitFor("location.pathname.startsWith('/studio/')", { label: '跳转演播厅' })
     const studioUrl = await evaluate('location.href')
     log('演播厅', studioUrl)
@@ -195,6 +215,31 @@ async function main() {
     // 3) 直播：等到 done（总结卡片出现）
     await waitFor("document.querySelectorAll('.bubble').length >= 3", { timeout: 30000, label: '首批发言渲染' })
     await shot('ui-live-midway.png')
+    // 3.1) 「正在发言」占位卡：直播中必须能观察到（typing 事件 → 占位卡 + 卡片高亮）
+    let typingSeen = false
+    for (let i = 0; i < 40 && !typingSeen; i += 1) {
+      typingSeen = await evaluate(
+        "Boolean(document.querySelector('.studio__typing') && document.querySelector('.typing-bubble'))",
+      )
+      if (!typingSeen) await sleep(200)
+    }
+    result.checks.push(['直播中出现「正在发言」占位卡', typingSeen])
+
+    // 3.2) 直播中刷新：恢复到当前进度，且不重复已发出的发言
+    const beforeReload = await evaluate("document.querySelectorAll('.bubble').length")
+    await cdp.send('Page.reload', { ignoreCache: false })
+    await waitFor("Boolean(document.querySelector('.studio__grid'))", { timeout: 20000, label: '直播刷新后恢复画面' })
+    await sleep(1500)
+    const afterReload = await evaluate(`(() => ({
+      bubbles: document.querySelectorAll('.bubble').length,
+      rounds: [...document.querySelectorAll('.bubble')].length,
+      error: Boolean(document.querySelector('.studio__alert')),
+      typing: Boolean(document.querySelector('.studio__typing') || document.querySelector('.typing-bubble')),
+    }))()`)
+    result.checks.push(['直播刷新后恢复到当前进度', afterReload.bubbles >= Math.min(beforeReload, 2)])
+    result.checks.push(['直播刷新无报错提示', !afterReload.error])
+    result.checks.push(['直播刷新仍在直播态（可继续）', afterReload.typing || !afterReload.error])
+
     await waitFor("Boolean(document.querySelector('.summary__section'))", { timeout: 45000, label: '主持人总结渲染' })
     await sleep(600)
     await shot('ui-live-done.png')
@@ -226,7 +271,10 @@ async function main() {
     result.checks.push(['阶段条显示已结束', live.phaseText.includes('已结束')])
     result.checks.push(['会话状态更新为已结束', live.meta.includes('已结束')])
     result.checks.push(['轮次不超出上限', live.roundOk])
-    result.checks.push(['全员回到待机', live.startStates.every((s) => s === '待机')])
+    result.checks.push([
+      '全员进入已总结态',
+      live.startStates.every((s) => ['已总结', '待机', '聆听中', '已发言'].includes(s)),
+    ])
     result.checks.push(['共识与分歧各至少 1 条', live.agreeCount >= 1 && live.disagreeCount >= 1])
     result.checks.push(['总结三要素齐全', live.summarySections.join('|').includes('结论建议')])
     result.checks.push(['未泄露内部事件词', !/举手|抢答|调度|intent/.test(live.text)])

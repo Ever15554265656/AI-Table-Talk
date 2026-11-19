@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from collections.abc import AsyncIterator, Callable
 
 from sqlalchemy import func
@@ -35,6 +36,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.flows import consensus as consensus_flow
 from backend.flows import opening as opening_flow
+from backend.flows import scheduling as scheduling_flow
 from backend.flows import speaking as speaking_flow
 from backend.flows import summary as summary_flow
 from backend.flows import turn_taking as turn_flow
@@ -65,6 +67,8 @@ from backend.schemas import (
     StatusEvent,
     StatusEventData,
     SummaryOut,
+    TypingEvent,
+    TypingEventData,
 )
 from backend.stream import broker
 
@@ -72,6 +76,16 @@ logger = logging.getLogger(__name__)
 
 #: 事件出口：SSE 端点接 ``broker.publish``，测试接 ``list.append``
 Publish = Callable[[SseEvent], None]
+
+
+async def _pause(seconds: float) -> None:
+    """真人节奏的停顿。
+
+    ``SPEAK_INTERVAL_SECONDS`` / ``THINK_INTERVAL_SECONDS`` 置 0 时**不进入事件循环**，
+    保证测试与压测不被节奏拖慢（见 ``tests/conftest.py``）。
+    """
+    if seconds > 0:
+        await asyncio.sleep(seconds)
 
 
 class DiscussionNotFound(LookupError):
@@ -152,6 +166,17 @@ def _message_count(db, session: DiscussionSession) -> int:
     )
 
 
+def _count_by_role(db, session: DiscussionSession, *, host: bool) -> int:
+    """按「主持人 / 专家」分别统计已落库发言数（断点续播靠它判断说到哪了）。"""
+    return int(
+        db.query(func.count(Message.id))
+        .join(Expert, Expert.id == Message.expert_id)
+        .filter(Message.session_id == session.id, Expert.is_host.is_(host))
+        .scalar()
+        or 0
+    )
+
+
 class _Envelope:
     """事件序号与公共字段的唯一出口（``seq`` 从 1 起单调递增）。"""
 
@@ -163,14 +188,33 @@ class _Envelope:
         self._seq += 1
         return self._seq
 
-    def phase(self, phase: DiscussionPhase, *, round: int = 0) -> PhaseEvent:
+    def phase(
+        self,
+        phase: DiscussionPhase,
+        *,
+        round: int = 0,
+        max_rounds: int | None = None,
+    ) -> PhaseEvent:
         return PhaseEvent(
             session_id=self.session_id,
             seq=self._next(),
             data=PhaseEventData(
                 phase=phase,
                 round=max(0, round),
-                max_rounds=settings.max_rounds,
+                max_rounds=max(1, int(max_rounds or settings.max_rounds)),
+            ),
+        )
+
+    def typing(self, expert: Expert, *, round: int = 0, label: str = "正在发言") -> TypingEvent:
+        """「谁正在发言」：前端据此在发言流顶部与专家卡片上同步高亮（回看不显示）。"""
+        return TypingEvent(
+            session_id=self.session_id,
+            seq=self._next(),
+            data=TypingEventData(
+                expert_id=expert.id,
+                expert_name=expert.name,
+                round=max(0, round),
+                label=label,
             ),
         )
 
@@ -273,44 +317,98 @@ async def run_discussion(
             raise RuntimeError(f"会话 {session_id} 阵容不完整（需 1 位主持人 + 至少 1 位专家）")
         by_id = {expert.id: expert for expert in experts}
 
-        # ---- 开演：状态置 live，全员 idle 先上屏
+        # ---- 开演：状态置 live，全员 idle 先上屏（断点续播时不再重放开场）
         session.status = SessionStatus.LIVE.value
         db.commit()
         publish(envelope.phase(DiscussionPhase.OPENING, round=0))
         publish(envelope.status(_panelists(experts)))
 
-        # ---- 主持人开场
-        publish(
-            envelope.status(
-                _panelists(
-                    experts,
-                    speaking=host,
-                    state=PanelistState.PREPARING,
-                    focus="介绍议题与在场嘉宾",
+        # 断点续播：刷新 / 进程重启后，已经说过的段落不再重说一遍
+        host_spoken = _count_by_role(db, session, host=True)
+        debate_done = _count_by_role(db, session, host=False)
+        opening_done = host_spoken > 0
+        closing_done = host_spoken > 1
+
+        # ---- 主持人开场（先「想一想」再开口，别一秒开场白就砸出来）
+        if not opening_done:
+            publish(
+                envelope.status(
+                    _panelists(
+                        experts,
+                        speaking=host,
+                        state=PanelistState.PREPARING,
+                        focus="介绍议题与在场嘉宾",
+                    )
                 )
             )
-        )
-        publish(
-            envelope.status(
-                _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+            publish(envelope.typing(host, round=0, label="正在开场"))
+            await _pause(settings.typing_seconds)
+            publish(
+                envelope.status(
+                    _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+                )
             )
-        )
-        opening_text = await opening_flow.generate_opening(db, session, host, client=llm)
-        publish(envelope.message(_save_message(db, session, host, opening_text)))
-        publish(envelope.status(_panelists(experts)))
+            await _pause(settings.think_interval_seconds)
+            opening_text = await opening_flow.generate_opening(
+                db, session, host, client=llm
+            )
+            publish(envelope.message(_save_message(db, session, host, opening_text)))
+            publish(envelope.status(_panelists(experts)))
+            await _pause(settings.speak_interval_seconds)
 
-        # ---- 交锋
-        publish(envelope.phase(DiscussionPhase.DEBATE, round=0))
-        last_speaker_id = host.id
-        for _ in range(settings.max_rounds):
+        # ---- 交锋：均衡轮转（每轮全员各说一次，主持人不上场）
+        guest_names = [expert.name for expert in guests]
+        schedule_plans = scheduling_flow.plan_schedule(
+            guest_names,
+            settings.max_rounds,
+            rng=random.Random(f"{session.id}|schedule"),
+        )
+        rounds_total = max(1, len(schedule_plans))
+        schedule: list[tuple[int, int, str]] = []
+        for plan in schedule_plans:
+            for position, name in enumerate(plan.order):
+                schedule.append((plan.index, position, name))
+
+        publish(envelope.phase(DiscussionPhase.DEBATE, round=0, max_rounds=rounds_total))
+        last_speaker_id = host.id if not opening_done else (
+            db.query(Message.expert_id)
+            .filter(Message.session_id == session.id)
+            .order_by(Message.round.desc())
+            .limit(1)
+            .scalar()
+            or host.id
+        )
+        rounds = debate_done
+        # 本场已用过的骨架（同一句式全场只出现一次）：断点续播时从空开始也能读通，
+        # 因为句式只影响措辞，不影响事实与立场。
+        used_skeletons: set[str] = set()
+
+        for index, (round_no, position, forced_name) in enumerate(schedule, start=1):
+            if index <= debate_done:
+                continue
+            # 每一轮开头发一次 phase：前端进度条按「轮」推进，而不是按发言条数
+            if position == 0:
+                publish(
+                    envelope.phase(
+                        DiscussionPhase.DEBATE, round=round_no, max_rounds=rounds_total
+                    )
+                )
             try:
                 decision = turn_flow.select_next_speaker(
-                    db, session, client=llm, last_speaker_id=last_speaker_id
+                    db,
+                    session,
+                    client=llm,
+                    last_speaker_id=last_speaker_id,
+                    forced_name=forced_name,
                 )
             except Exception:  # noqa: BLE001 - 调度失败不允许中断整场
                 logger.warning("举手调度失败，降级为轮流发言", exc_info=True)
-                pool = [expert for expert in guests if expert.id != last_speaker_id]
-                chosen = (pool or guests)[0]
+                chosen = by_id.get(
+                    next(
+                        (expert.id for expert in guests if expert.name == forced_name),
+                        guests[0].id,
+                    )
+                ) or guests[0]
                 decision = turn_flow.TurnDecision(
                     expert_id=chosen.id,
                     expert_name=chosen.name,
@@ -330,20 +428,33 @@ async def run_discussion(
                     )
                 )
             )
+            # 「正在发言」：先亮 typing（前端立刻出占位卡片），再等 1~2 秒开始吐字
+            publish(envelope.typing(speaker, round=round_no))
+            await _pause(settings.typing_seconds)
             publish(
                 envelope.status(
                     _panelists(experts, speaking=speaker, state=PanelistState.SPEAKING)
                 )
             )
+            # 思考停顿：发言中状态要真的「看得见」，而不是瞬间闪一下
+            await _pause(settings.think_interval_seconds)
 
             text = await speaking_flow.generate_speech(
-                session, speaker, decision, turn=rounds + 1, client=llm
+                session,
+                speaker,
+                decision,
+                turn=index,
+                db=db,
+                client=llm,
+                used_skeletons=used_skeletons,
             )
             message = _save_message(db, session, speaker, text)
             rounds += 1
             publish(envelope.message(message))
             publish(envelope.status(_panelists(experts)))
             last_speaker_id = speaker.id
+            # 换人间隔：下一位开口前留白，台词才不会像连珠炮
+            await _pause(settings.speak_interval_seconds)
 
             if rounds % every == 0:
                 try:
@@ -353,8 +464,8 @@ async def run_discussion(
                 else:
                     _push_insights(db, session, envelope, publish, rounds // every)
 
-        # ---- 收尾：主持人总结
-        publish(envelope.phase(DiscussionPhase.WRAP_UP))
+        # ---- 收尾：主持人总结（断点续播时，已经总结过的场次不再重说）
+        publish(envelope.phase(DiscussionPhase.WRAP_UP, max_rounds=rounds_total))
         publish(
             envelope.status(
                 _panelists(
@@ -365,21 +476,30 @@ async def run_discussion(
                 )
             )
         )
-        summary = await summary_flow.generate_summary(db, session, client=llm)
-        publish(
-            envelope.status(
-                _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+        if closing_done:
+            # 上一轮已经总结完（只是进程没了），直接补 done，不重复生成
+            summary = None
+            final_status = SessionStatus.ENDED
+        else:
+            publish(envelope.typing(host, round=rounds_total, label="正在总结"))
+            await _pause(settings.typing_seconds)
+            await _pause(settings.think_interval_seconds)
+            summary = await summary_flow.generate_summary(db, session, client=llm)
+            publish(
+                envelope.status(
+                    _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+                )
             )
-        )
-        closing = _save_message(db, session, host, summary_flow.summary_text(summary))
-        publish(envelope.message(closing))
-        publish(envelope.status(_panelists(experts)))
+            closing = _save_message(db, session, host, summary_flow.summary_text(summary))
+            publish(envelope.message(closing))
+            publish(envelope.status(_panelists(experts)))
+            final_status = SessionStatus.ENDED
 
         session.status = SessionStatus.ENDED.value
         db.commit()
         publish(
             envelope.done(
-                status=SessionStatus.ENDED,
+                status=final_status,
                 total_rounds=rounds,
                 message_count=_message_count(db, session),
                 summary=summary,
@@ -456,7 +576,7 @@ def _publish_finished(session_id: str) -> None:
                 status=SessionStatus.ENDED,
                 total_rounds=rounds,
                 message_count=_message_count(db, session),
-                degraded=True,
+                degraded=False,
             ),
         )
     finally:

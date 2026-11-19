@@ -179,7 +179,12 @@ class Settings:
     # --- 讨论节奏 ---
     max_rounds: int = DEFAULT_ROUNDS
     insight_every_n_messages: int = 3
+    #: 一条发言结束后，到下一位开口之间的停顿（"换人喘口气"）
     speak_interval_seconds: float = 1.4
+    #: 席位进入 preparing 后，到真正开口之间的「思考」停顿（模拟真人组织语言）
+    think_interval_seconds: float = 1.1
+    #: 宣布「谁在发言」到正文上屏之间的 typing 时长（MOCK 下 1~2 秒，前端据此显示占位卡片）
+    typing_seconds: float = 1.2
     max_consensus_items: int = 10
 
     # ------------------------------------------------------------ 派生属性
@@ -232,6 +237,8 @@ class Settings:
             "max_rounds": self.max_rounds,
             "insight_every_n_messages": self.insight_every_n_messages,
             "speak_interval_seconds": self.speak_interval_seconds,
+            "think_interval_seconds": self.think_interval_seconds,
+            "typing_seconds": self.typing_seconds,
         }
 
 
@@ -269,6 +276,10 @@ def get_settings() -> Settings:
         speak_interval_seconds=_env_float(
             "SPEAK_INTERVAL_SECONDS", 1.4, minimum=0.0, maximum=15.0
         ),
+        think_interval_seconds=_env_float(
+            "THINK_INTERVAL_SECONDS", 1.1, minimum=0.0, maximum=15.0
+        ),
+        typing_seconds=_env_float("TYPING_SECONDS", 1.2, minimum=0.0, maximum=10.0),
         max_consensus_items=_env_int("MAX_CONSENSUS_ITEMS", 10, minimum=2, maximum=40),
     )
 

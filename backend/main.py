@@ -6,14 +6,25 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.config import settings
-from backend.llm import get_llm
-from backend.routers import API_ROUTERS
+# 只影响模块导入路径，不改任何业务逻辑。兼容两种启动方式：
+# 1) 仓库根目录：``uvicorn backend.main:app`` → ``__package__ == "backend"``，本段跳过，
+#    行为与改动前完全一致；
+# 2) backend 目录：``uvicorn main:app`` → ``__package__ == ""``，此时 ``main`` 是顶层模块，
+#    需要把项目根补回 ``sys.path``，否则下面 ``from backend.config import settings``
+#    会抛 ``ModuleNotFoundError: No module named 'backend'``。
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from backend.config import settings  # noqa: E402
+from backend.llm import get_llm  # noqa: E402
+from backend.routers import API_ROUTERS  # noqa: E402
 
 
 def create_app() -> FastAPI:

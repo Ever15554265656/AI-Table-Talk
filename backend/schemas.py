@@ -1,4 +1,4 @@
-"""Pydantic 契约模型：REST 出入参 + SSE 五种事件。
+"""Pydantic 契约模型：REST 出入参 + SSE 六种事件。
 
 本模块是**前后端唯一的契约真源**：前端类型由 ``/openapi.json`` 生成，
 因此这里的字段命名、取值范围、约束即为接口协议本身（详见 ``docs/API.md``）。
@@ -229,12 +229,13 @@ class SummaryOut(BaseModel):
 
 
 class SseEventType(str, Enum):
-    """五种事件类型（与前端 EventSource 监听名一一对应）。"""
+    """六种事件类型（与前端 EventSource 监听名一一对应）。"""
 
     MESSAGE = "message"
     STATUS = "status"
     CONSENSUS = "consensus"
     PHASE = "phase"
+    TYPING = "typing"
     DONE = "done"
 
 
@@ -295,6 +296,22 @@ class PhaseEventData(BaseModel):
     max_rounds: int = Field(ge=1)
 
 
+class TypingEventData(BaseModel):
+    """「谁正在发言」的公开提示：前端据此在发言流顶部与专家卡片上同步高亮。
+
+    只带发言人身份与轮次，不带任何正文 / 关注点推导过程 —— 正文仍由 ``message`` 事件给出。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expert_id: str
+    expert_name: str
+    round: int = Field(ge=0, description="当前轮次（0 表示开场 / 收尾阶段）")
+    label: str = Field(
+        default="正在发言", max_length=20, description="展示文案：正在发言 / 正在总结"
+    )
+
+
 class DoneEventData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -335,6 +352,11 @@ class PhaseEvent(SseEventBase):
     data: PhaseEventData
 
 
+class TypingEvent(SseEventBase):
+    event: Literal["typing"] = "typing"
+    data: TypingEventData
+
+
 class DoneEvent(SseEventBase):
     event: Literal["done"] = "done"
     data: DoneEventData
@@ -342,7 +364,7 @@ class DoneEvent(SseEventBase):
 
 #: 判别联合：可用 ``SseEventAdapter.validate_json(raw)`` 反序列化（重放 / 测试用）
 SseEvent = Annotated[
-    MessageEvent | StatusEvent | ConsensusEvent | PhaseEvent | DoneEvent,
+    MessageEvent | StatusEvent | ConsensusEvent | PhaseEvent | TypingEvent | DoneEvent,
     Field(discriminator="event"),
 ]
 SseEventAdapter: TypeAdapter[SseEvent] = TypeAdapter(SseEvent)
@@ -393,6 +415,8 @@ __all__ = [
     "StatusEventData",
     "SummaryOut",
     "SummarySection",
+    "TypingEvent",
+    "TypingEventData",
     "decode_sse_data",
     "encode_sse",
 ]

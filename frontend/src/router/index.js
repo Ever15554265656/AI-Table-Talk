@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import Home from '@/views/Home.vue'
+import Lineup from '@/views/Lineup.vue'
 import Studio from '@/views/Studio.vue'
 
 const routes = [
@@ -9,6 +10,14 @@ const routes = [
     name: 'home',
     component: Home,
     meta: { title: 'AI 圆桌演播厅' },
+  },
+  {
+    // 阵容确认页（PRD R2）：确认后才进入演播厅，SSE 开演由演播厅触发
+    path: '/lineup/:id',
+    name: 'lineup',
+    component: Lineup,
+    props: true,
+    meta: { title: '阵容确认' },
   },
   {
     // 直播与回看共用同一个演播厅组件，由 route.query.mode 决定控制条形态
