@@ -293,6 +293,8 @@ async function main() {
       phaseText: document.querySelector('.phase-bar')?.innerText.replace(/\\s+/g, ' ') || '',
       consensus: document.querySelectorAll('.insight').length,
       streaming: document.querySelectorAll('.bubble.is-streaming').length,
+      summarySections: [...document.querySelectorAll('.summary__section h3')].map((n) => n.innerText),
+      degradedBanner: Boolean(document.querySelector('.studio__degraded')),
       text: document.body.innerText,
     }))()`)
 
@@ -301,6 +303,11 @@ async function main() {
     result.checks.push(['回看无打字机残留', replay.streaming === 0])
     result.checks.push(['回看仍有共识快照', replay.consensus >= 2])
     result.checks.push(['回看阶段为已结束', replay.phaseText.includes('已结束')])
+    result.checks.push([
+      '回看能重建三段总结',
+      replay.summarySections.join('|').includes('结论建议'),
+    ])
+    result.checks.push(['Mock 模式不显示降级提示', replay.degradedBanner === false])
     result.replay = { ...replay, text: undefined }
 
     result.ok = result.checks.every(([, passed]) => passed)

@@ -301,6 +301,9 @@ async def run_discussion(
     db = SessionLocal()
     envelope = _Envelope(session_id)
     llm = client or get_llm()
+    #: 单例客户端跨场复用：每场开始前清空「降级」标记，done 里才能反映本场真实情况
+    if hasattr(llm, "reset_degraded"):
+        llm.reset_degraded()
     every = max(1, settings.insight_every_n_messages)
     session: DiscussionSession | None = None
     rounds = 0
@@ -497,12 +500,17 @@ async def run_discussion(
 
         session.status = SessionStatus.ENDED.value
         db.commit()
+        # 降级标记：本场有任一场景重试后仍失败、最终用 Mock 兜底（或总结段数不足）即为 True
+        degraded = bool(getattr(llm, "degraded", False)) or bool(
+            summary is not None and summary.degraded
+        )
         publish(
             envelope.done(
                 status=final_status,
                 total_rounds=rounds,
                 message_count=_message_count(db, session),
                 summary=summary,
+                degraded=degraded,
             )
         )
     except DiscussionNotFound:

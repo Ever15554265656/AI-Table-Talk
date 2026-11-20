@@ -102,6 +102,8 @@ cd frontend && npm run preview   # 预览构建产物
 | 成本 | **零 API 调用、零费用** | 按 token 计费，取决于 `LLM_MAX_TOKENS` 与场次规模 |
 | 适用场景 | 本地开发、演示答辩、CI 与自动化测试 | 需要更自由的措辞与更深推理的正式演示 |
 | 差别 | 措辞由规则引擎决定，结构稳定、可复现 | 内容由模型决定，更自然但存在波动与延迟 |
+| 失败处理 | 不涉及远端，永不失败 | 单次调用最多重试 2 次（间隔 1 秒）；仍失败则本次内容改用 Mock 兜底，`done.degraded=true`，演播厅顶部提示「本次生成降级（Mock 兜底）」 |
+| 超时 | — | 由 `LLM_TIMEOUT_SECONDS`（默认 45 秒）控制单次请求超时 |
 
 真实模式最小配置（`.env`）：
 
@@ -150,12 +152,15 @@ DEEPSEEK_MODEL=deepseek-chat
 全部自动化测试都在 **MOCK 模式**下运行：不占端口、不出网、零模型调用。
 
 ```bash
-# 后端单测 + E2E（当前 146 条，含 8 条全链路用例）
+# 后端单测 + E2E（当前 153 条，含 8 条全链路用例与 6 条降级/超时用例）
 python -m pytest backend/tests -q
 
 # 只跑全链路 E2E
 python -m pytest backend/tests/test_e2e_flow.py -q
 ```
+
+前端为**纯 JavaScript（Vue 3 + Vite + Element Plus）**：不含 TypeScript，也**暂无 ESLint 等 lint 门禁**，
+质量门禁以 `npm run build`（Vite 构建通过）为准；如需接入 lint，建议后续单独加 ESLint flat config。
 
 `backend/tests/test_e2e_flow.py` 用 `httpx.ASGITransport` 走真实 HTTP / SSE 路径，逐场景覆盖：
 
@@ -194,4 +199,7 @@ python scripts/clean_sessions.py --yes      # 跳过确认（脚本/CI）
 
 - 阵容确认页目前只做「确认门」，尚未提供「重新生成阵容」按钮（后端未暴露该动作）。
 - 暂停 / 继续只冻结前端打字机渲染，后端产出不会因此中断；讨论仍会走完并落库。
-- 回看页的总结来自 `done` 事件，不单独持久化（总结正文作为最后一条主持人发言保留在 `messages` 中）。
+- 回看的总结**不单独持久化**：前端从最后一条主持人发言（三段用空行分隔）重建「共识 / 分歧 / 结论建议」，
+  若后端将来提供 `/summary`，会优先使用库内结构化数据。
+- 真实模式的单次调用含 2 次重试；重试后仍失败会降级 Mock 并在顶部提示，但**降级内容不写库标记**
+  （仅 `done.degraded` 事件可见）。

@@ -39,6 +39,7 @@ const {
   agree,
   disagree,
   summary,
+  degraded,
   phase,
   round,
   maxRounds,
@@ -183,6 +184,16 @@ const messageCount = computed(() => items.value.length)
       :closable="false"
       show-icon
       :title="error"
+    />
+
+    <!-- 真实模式重试后仍失败、本次内容由 Mock 兜底时，演播厅顶部给出明确提示 -->
+    <el-alert
+      v-if="degraded"
+      class="studio__degraded"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="本次生成降级（Mock 兜底）"
     />
 
     <PhaseBar
@@ -377,6 +388,11 @@ const messageCount = computed(() => items.value.length)
 }
 
 .studio__alert {
+  flex: none;
+}
+
+/* 「本次生成降级」提示条：与错误提示同款宽度，但用不同的语义色 */
+.studio__degraded {
   flex: none;
 }
 

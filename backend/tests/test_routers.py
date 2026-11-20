@@ -62,6 +62,19 @@ async def test_create_session_rejects_invalid_expert_count(db):
     assert response.status_code == 422
 
 
+async def test_create_session_rejects_blank_topic(db):
+    """空白议题必须被入参校验拦住（422），不能建出一场没有议题的会话。"""
+    async with _client() as client:
+        response = await client.post(
+            "/api/sessions", json={"topic": "   ", "expert_count": 3}
+        )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any("话题" in str(item.get("msg", "")) for item in detail), detail
+    assert db.query(DiscussionSession).count() == 0, "校验失败不允许落库"
+
+
 async def test_list_sessions_is_newest_first_and_filterable(db):
     first = seed_session(db, topic="第一个议题", expert_count=2, status="live")
     seed_lineup(db, first)

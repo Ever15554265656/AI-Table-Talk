@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 from sqlalchemy import func
 
@@ -349,7 +351,15 @@ async def test_replay_is_read_only_and_never_regenerates(db, monkeypatch):
             response = await client.post(f"/api/sessions/{detail['id']}/{path}")
             assert response.status_code in (404, 405), f"{path} 不该可写：{response.status_code}"
         still = (await client.get(f"/api/sessions/{detail['id']}")).json()
+        history = (await client.get(f"/api/sessions/{detail['id']}/messages")).json()
     assert still["status"] == SessionStatus.ENDED.value
+
+    # 回看总结卡片的数据来源：最后一条主持人发言就是三段式总结正文（空行分段）
+    host_id = next(item["id"] for item in detail["experts"] if item["is_host"])
+    last = history[-1]
+    assert last["expert_id"] == host_id, "收尾总结必须由主持人说"
+    paragraphs = [part for part in re.split(r"\n\s*\n", last["content"]) if part.strip()]
+    assert len(paragraphs) >= 3, f"回看需要能重建三段总结：{paragraphs}"
 
 
 # ---------------------------------------------------------------- 6. 中断恢复

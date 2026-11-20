@@ -36,6 +36,8 @@ export function useDiscussionStream(sessionId) {
   const agree = ref([])
   const disagree = ref([])
   const summary = ref(null)
+  /** 本次生成是否发生过降级（后端 done.degraded=true → 顶部提示「Mock 兜底」） */
+  const degraded = ref(false)
   /**
    * 后端 `status` 事件快照：expert_id → { state, focus }。
    * 只用来取**公开关注点**与兜底三态 —— 屏幕上的三态由本端「谁在打字」决定，
@@ -184,6 +186,7 @@ export function useDiscussionStream(sessionId) {
         // done.total_rounds 是「发言条数」，不能直接当轮数：轮次进度以 phase 事件给的轮数为准
         phaseRound.value = Math.max(phaseRound.value, maxRounds.value)
         summary.value = payload?.summary ?? null
+        degraded.value = Boolean(payload?.degraded)
         if (payload?.status && session.value) session.value.status = payload.status
         seatFeed.value = {}
         stopTimer()
@@ -235,6 +238,40 @@ export function useDiscussionStream(sessionId) {
     }
   }
 
+  /** 总结小标题（与后端 `SummaryOut.heading` 的 Literal 三值保持一致） */
+  const SUMMARY_HEADINGS = ['共识', '分歧', '结论建议']
+
+  /**
+   * 回看时的总结重建：后端只把总结正文作为「最后一条主持人发言」落库，
+   * 因此按空行切段即可无损还原「共识 / 分歧 / 结论建议」三段（不改数据库表）。
+   */
+  function rebuildSummary(history) {
+    const host = experts.value.find((item) => item.is_host)
+    if (!host) return null
+    const last = [...history].reverse().find((item) => item.expert_id === host.id)
+    const text = String(last?.content || '')
+      .replace(/\r\n/g, '\n')
+      .trim()
+    if (!text) return null
+    let paragraphs = text
+      .split(/\n\s*\n/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (!paragraphs.length) return null
+    // 多出来的段落并入最后一段，口径与后端 `split_summary_sections` 一致
+    if (paragraphs.length > SUMMARY_HEADINGS.length) {
+      const head = paragraphs.slice(0, SUMMARY_HEADINGS.length - 1)
+      const tail = paragraphs.slice(SUMMARY_HEADINGS.length - 1).join('')
+      paragraphs = [...head, tail]
+    }
+    return {
+      session_id: sessionId,
+      sections: paragraphs.map((body, index) => ({ heading: SUMMARY_HEADINGS[index], body })),
+      degraded: paragraphs.length < SUMMARY_HEADINGS.length,
+      created_at: last?.created_at ?? null,
+    }
+  }
+
   async function loadHistory() {
     const [history, insights] = await Promise.all([
       listMessages(sessionId),
@@ -270,6 +307,8 @@ export function useDiscussionStream(sessionId) {
         playing.value = false
         phase.value = 'ended'
         applyHistory(history)
+        // 回看没有 done 事件：有库内 summary 就用，否则从最后一条主持人发言重建
+        if (!summary.value) summary.value = rebuildSummary(history)
         maxRounds.value = roundCount(debateRounds(true))
         phaseRound.value = maxRounds.value
         return
@@ -413,6 +452,7 @@ export function useDiscussionStream(sessionId) {
     agree,
     disagree,
     summary,
+    degraded,
     phase,
     round,
     maxRounds,

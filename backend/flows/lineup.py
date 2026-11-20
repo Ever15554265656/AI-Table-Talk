@@ -20,7 +20,7 @@ from backend import topics
 from backend.config import PANEL_COLOR_PALETTE
 from backend.flows.parsing import loads_json
 from backend.flows.prompts import LINEUP_PROMPT
-from backend.llm import SCENE_LINEUP, LLMClient, get_llm
+from backend.llm import SCENE_LINEUP, LLMClient, LLMError, get_llm, mock_text
 from backend.models import DiscussionSession, Expert
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,20 @@ def generate_lineup(
     expected = session.expert_count + 1
     payload = build_lineup_payload(session, topic)
 
-    raw = llm.complete(scene=SCENE_LINEUP, prompt=LINEUP_PROMPT, payload=payload)
+    def complete(payload_: dict[str, object]) -> str:
+        """调用模型生成阵容；连 Mock 兜底都不可用时才向上抛错（→ 502）。"""
+        try:
+            return llm.complete(
+                scene=SCENE_LINEUP, prompt=LINEUP_PROMPT, payload=payload_
+            )
+        except LLMError:
+            # 真实模式最终失败：用 Mock 阵容顶上，保证用户能开演，而不是收到 502
+            logger.exception("会话 %s 阵容生成失败，降级为 Mock 阵容", session.id)
+            if hasattr(llm, "mark_degraded"):
+                llm.mark_degraded(SCENE_LINEUP, "阵容生成失败")
+            return mock_text(SCENE_LINEUP, payload_)
+
+    raw = complete(payload)
     seats = _parse_seats(raw, expected)
 
     # 立场一边倒（全员支持 / 全员反对）时重试一次：这类阵容吵不起来，
@@ -125,7 +138,7 @@ def generate_lineup(
             **payload,
             "stance_requirement": "上一版阵容全员同一立场，本次必须让支持 / 反对 / 中立同时出现",
         }
-        raw = llm.complete(scene=SCENE_LINEUP, prompt=LINEUP_PROMPT, payload=retry_payload)
+        raw = complete(retry_payload)
         seats = _parse_seats(raw, expected)
         if not topics.stance_spread(_experts_stance_labels(seats)):
             logger.warning("会话 %s 的阵容重试后仍然一边倒，按模型结果继续", session.id)

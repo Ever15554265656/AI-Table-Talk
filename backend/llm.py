@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 import time
 from collections.abc import AsyncIterator, Iterator, Mapping
@@ -28,6 +29,8 @@ from backend import arguments
 from backend import topics
 from backend.config import PANEL_COLOR_PALETTE, Settings
 from backend.config import settings as default_settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- 场景常量
 
@@ -50,6 +53,11 @@ SCENES: frozenset[str] = frozenset(
 
 #: 流式切片大小（字符）。真人打字机观感约 6~12 字/块，这里取 6 以便测试能验证分块
 CHUNK_SIZE: int = 6
+
+#: 真实模式失败后的重试策略：总共 ``LLM_MAX_ATTEMPTS`` 次尝试（含首次），
+#: 每次失败后等待 ``LLM_RETRY_DELAY_SECONDS`` 秒；仍失败则**降级为 Mock 兜底**。
+LLM_MAX_ATTEMPTS: int = 3
+LLM_RETRY_DELAY_SECONDS: float = 1.0
 
 
 class LLMError(RuntimeError):
@@ -393,6 +401,10 @@ class LLMClient:
         self._max_tokens = self._config.max_tokens
         self._sync_client: Any = None
         self._async_client: Any = None
+        #: 真实模式失败并降级到 Mock 时置真；讨论层据此在 ``done.degraded`` 上标注
+        self.degraded: bool = False
+        #: 发生过降级的场景（排障用，去重保序）
+        self.degraded_scenes: list[str] = []
 
     # ------------------------------------------------------------ 只读属性
 
@@ -409,12 +421,12 @@ class LLMClient:
     def stream(
         self, *, scene: str, prompt: str, payload: Mapping[str, Any]
     ) -> Iterator[str]:
-        """同步流式：逐块产出文本片段。"""
+        """同步流式：逐块产出文本片段（真实模式带重试 + Mock 兜底）。"""
         self._assert_scene(scene)
         if self.mock:
             yield from self._mock_stream(scene, payload)
             return
-        yield from self._remote_stream(prompt, payload)
+        yield from self._remote_stream_with_fallback(scene, prompt, payload)
 
     def complete(self, *, scene: str, prompt: str, payload: Mapping[str, Any]) -> str:
         """同步聚合：把流式片段拼成完整文本（已去除首尾空白）。"""
@@ -423,13 +435,13 @@ class LLMClient:
     async def astream(
         self, *, scene: str, prompt: str, payload: Mapping[str, Any]
     ) -> AsyncIterator[str]:
-        """异步流式：SSE 端点专用，``await`` 期间不阻塞事件循环。"""
+        """异步流式：SSE 端点专用（真实模式带重试 + Mock 兜底）。"""
         self._assert_scene(scene)
         if self.mock:
             async for chunk in self._mock_astream(scene, payload):
                 yield chunk
             return
-        async for chunk in self._remote_astream(prompt, payload):
+        async for chunk in self._remote_astream_with_fallback(scene, prompt, payload):
             yield chunk
 
     async def acomplete(
@@ -469,6 +481,81 @@ class LLMClient:
         """
         return self._latency_ms if scene == SCENE_SPEAK else 0
 
+    # ------------------------------------------------------------ 内部：重试与降级
+
+    def reset_degraded(self) -> None:
+        """开始一场新讨论前清空降级标记（``get_llm`` 是进程级单例）。"""
+        self.degraded = False
+        self.degraded_scenes.clear()
+
+    def mark_degraded(self, scene: str, reason: str = "") -> None:
+        """记录一次降级：该场景的内容由 Mock 兜底生成（``done.degraded`` 据此置真）。"""
+        self.degraded = True
+        if scene not in self.degraded_scenes:
+            self.degraded_scenes.append(scene)
+        logger.warning(
+            "场景 %s 调用失败，已降级为 Mock 兜底：%s", scene, reason or "未知原因"
+        )
+
+    def _remote_stream_with_fallback(
+        self, scene: str, prompt: str, payload: Mapping[str, Any]
+    ) -> Iterator[str]:
+        """真实模式同步流：重试 ``LLM_MAX_ATTEMPTS`` 次，仍失败则切 Mock 兜底。
+
+        每次尝试都先**缓冲**再吐块：否则中途失败会让已输出的半句话被下一次尝试重复一遍。
+        """
+        last_error = ""
+        for attempt in range(1, LLM_MAX_ATTEMPTS + 1):
+            buffered: list[str] = []
+            try:
+                for chunk in self._remote_stream(prompt, payload):
+                    buffered.append(chunk)
+            except LLMError as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "场景 %s 第 %s/%s 次调用失败：%s",
+                    scene,
+                    attempt,
+                    LLM_MAX_ATTEMPTS,
+                    last_error,
+                )
+                if attempt < LLM_MAX_ATTEMPTS and LLM_RETRY_DELAY_SECONDS > 0:
+                    time.sleep(LLM_RETRY_DELAY_SECONDS)
+                continue
+            yield from buffered
+            return
+        self.mark_degraded(scene, last_error)
+        yield from self._mock_stream(scene, payload)
+
+    async def _remote_astream_with_fallback(
+        self, scene: str, prompt: str, payload: Mapping[str, Any]
+    ) -> AsyncIterator[str]:
+        """真实模式异步流：与同步版同一套重试 / 兜底策略。"""
+        last_error = ""
+        for attempt in range(1, LLM_MAX_ATTEMPTS + 1):
+            buffered: list[str] = []
+            try:
+                async for chunk in self._remote_astream(prompt, payload):
+                    buffered.append(chunk)
+            except LLMError as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "场景 %s 第 %s/%s 次调用失败：%s",
+                    scene,
+                    attempt,
+                    LLM_MAX_ATTEMPTS,
+                    last_error,
+                )
+                if attempt < LLM_MAX_ATTEMPTS and LLM_RETRY_DELAY_SECONDS > 0:
+                    await asyncio.sleep(LLM_RETRY_DELAY_SECONDS)
+                continue
+            for chunk in buffered:
+                yield chunk
+            return
+        self.mark_degraded(scene, last_error)
+        async for chunk in self._mock_astream(scene, payload):
+            yield chunk
+
     # ------------------------------------------------------------ 内部：远端
 
     def _ensure_sync_client(self):
@@ -480,6 +567,7 @@ class LLMClient:
             self._sync_client = OpenAI(
                 api_key=self._config.deepseek_api_key,
                 base_url=self._config.deepseek_base_url,
+                timeout=self._config.llm_timeout_seconds,
             )
         return self._sync_client
 
@@ -492,6 +580,7 @@ class LLMClient:
             self._async_client = AsyncOpenAI(
                 api_key=self._config.deepseek_api_key,
                 base_url=self._config.deepseek_base_url,
+                timeout=self._config.llm_timeout_seconds,
             )
         return self._async_client
 
@@ -563,6 +652,8 @@ def reset_llm() -> None:
 
 __all__ = [
     "CHUNK_SIZE",
+    "LLM_MAX_ATTEMPTS",
+    "LLM_RETRY_DELAY_SECONDS",
     "LLMClient",
     "LLMError",
     "SCENES",

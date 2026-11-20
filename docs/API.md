@@ -29,11 +29,11 @@
 
 | HTTP | 结构 | 场景 |
 |---|---|---|
-| 400 | `{"detail": {"code": "INVALID_TOPIC", "message": "话题不能为空"}}` | 业务语义非法（校验之外的规则） |
+| 400 | `{"detail": {"code": "INVALID_TOPIC", "message": "话题不能为空"}}` | （规划中，未实现）业务语义非法；当前空白议题走下方 422 |
 | 404 | `{"detail": {"code": "SESSION_NOT_FOUND", "message": "讨论不存在"}}` | `session_id` 不存在 |
-| 409 | `{"detail": {"code": "INVALID_STATUS_TRANSITION", "message": "当前状态不允许该操作"}}` | 状态机不合法（如对 `ended` 调用 `confirm`） |
-| 502 | `{"detail": {"code": "LLM_UNAVAILABLE", "message": "模型服务暂时不可用，请稍后重试"}}` | 上游模型失败且无法降级 |
-| 422 | FastAPI 标准 `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}` | 请求体字段校验失败 |
+| 409 | `{"detail": {"code": "INVALID_STATUS_TRANSITION", "message": "当前状态不允许该操作"}}` | （规划中，未实现）状态机不合法（如对 `ended` 调用 `confirm`） |
+| 502 | `{"detail": {"code": "LINEUP_FAILED", "message": "阵容生成失败：…"}}` | 阵容结果无法解析（真实模型重试后仍失败会先降级 Mock 阵容，不再返回 502） |
+| 422 | FastAPI 标准 `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}` | 请求体字段校验失败（含空白议题、人数越界、多余字段） |
 
 错误码（`code`）是**契约的一部分**，前端据此决定是否弹重试按钮，禁止直接显示英文 `msg`。
 
@@ -47,22 +47,23 @@
 | 2 | GET | `/api/sessions` | 讨论列表 | `200 SessionListItem[]` | 支持 `status`、`limit`（1~100，默认 20）、`offset` |
 | 3 | POST | `/api/sessions` | 创建讨论 + 生成阵容 | `201 SessionDetail` | 请求体 `SessionCreate` |
 | 4 | GET | `/api/sessions/{session_id}` | 讨论详情 | `200 SessionDetail` | 含完整阵容 |
-| 5 | GET | `/api/sessions/{session_id}/lineup` | 阵容（主持人 + 专家） | `200 LineupOut` | 确认页 / 席位区使用 |
-| 6 | POST | `/api/sessions/{session_id}/regenerate` | 重新生成阵容 | `200 SessionDetail` | 仅 `created` 可调用；请求体 `SessionRegenerate` |
-| 7 | POST | `/api/sessions/{session_id}/confirm` | 确认阵容并开播 | `200 SessionDetail` | `created → live` |
-| 8 | POST | `/api/sessions/{session_id}/pause` | 暂停讨论 | `200 SessionDetail` | 仅 `live` 可调用 |
-| 9 | POST | `/api/sessions/{session_id}/resume` | 继续讨论 | `200 SessionDetail` | 仅 `live`（暂停中）可调用 |
-| 10 | POST | `/api/sessions/{session_id}/end` | 结束讨论并生成总结 | `200 SessionDetail` | `live → ended`；总结经 SSE `done` 下发 |
+| 5 | GET | `/api/sessions/{session_id}/lineup` | 阵容（主持人 + 专家） | `200 LineupOut` | （规划中，未实现）当前实际接口为 `GET /api/sessions/{id}/experts` |
+| 6 | POST | `/api/sessions/{session_id}/regenerate` | 重新生成阵容 | `200 SessionDetail` | （规划中，未实现）请求体 `SessionRegenerate` 已定义但无端点 |
+| 7 | POST | `/api/sessions/{session_id}/confirm` | 确认阵容并开播 | `200 SessionDetail` | （规划中，未实现）当前由前端确认门 + 连接 SSE 触发开演 |
+| 8 | POST | `/api/sessions/{session_id}/pause` | 暂停讨论 | `200 SessionDetail` | （规划中，未实现）当前「暂停」仅冻结前端打字机 |
+| 9 | POST | `/api/sessions/{session_id}/resume` | 继续讨论 | `200 SessionDetail` | （规划中，未实现） |
+| 10 | POST | `/api/sessions/{session_id}/end` | 结束讨论并生成总结 | `200 SessionDetail` | （规划中，未实现）讨论会自行走完并发 `done` |
 | 11 | GET | `/api/sessions/{session_id}/messages` | 发言历史 | `200 MessageOut[]` | `after_round` 增量拉取；按 `round` 升序 |
 | 12 | GET | `/api/sessions/{session_id}/insights` | 共识 / 分歧快照 | `200 InsightsOut` | 两栏分组，恢复页面用 |
-| 13 | GET | `/api/sessions/{session_id}/summary` | 讨论总结 | `200 SummaryOut` | 未生成时 `404 SUMMARY_NOT_READY` |
+| 13 | GET | `/api/sessions/{session_id}/summary` | 讨论总结 | `200 SummaryOut` | （规划中，未实现）总结只经 `done` 事件下发；回看时前端从主持人收尾发言重建 |
 | 14 | GET | `/api/sessions/{session_id}/events` | 实时事件流 | `200 text/event-stream` | SSE，详见第 4 节 |
 
 **实现进度（对应 `backend/routers/`）**：已落地 #1–#4、#11、#12、#14，另提供兼容路径
-`GET /api/stream/{session_id}`。**#5–#10（阵容确认 / regenerate / confirm / pause / resume / end）
-与 #13（`/summary`）尚未实现**：当前前端在 `POST /api/sessions` 成功后直接进入演播厅，
-连接 SSE 即开演；总结只经 `done` 事件下发、未落库，因此已结束场次的回看页不显示总结卡片
-（总结正文本身作为最后一条发言留在 `messages` 里）。
+`GET /api/stream/{session_id}` 与席位表 `GET /api/sessions/{id}/experts`。
+**#5–#10（阵容确认 / regenerate / confirm / pause / resume / end）与 #13（`/summary`）
+为规划中、未实现**：当前前端在 `POST /api/sessions` 成功后直接进入演播厅，
+连接 SSE 即开演；暂停只冻结前端打字机；总结只经 `done` 事件下发、未落库，
+因此回看页由前端从**最后一条主持人发言**（即三段式总结正文，空行分段）重建总结卡片。
 
 **统一的隔离约束**：除 #1/#2/#3 外，所有端点都以 `{session_id}` 作为**唯一数据入口**，
 服务层必须把 `session_id` 拼进每个 `WHERE` 条件；任何端点都不得接受"跨场次"参数。
@@ -162,7 +163,10 @@ Content-Type: application/json
 }
 ```
 
-### 3.5 `GET /api/sessions/{id}/summary`
+### 3.5 `GET /api/sessions/{id}/summary`（规划中，未实现）
+
+> 当前版本没有该端点：总结随 `done` 事件的 `summary` 字段下发；
+> 已结束场次回看时，前端从最后一条主持人发言（三段用空行分隔）重建三段总结。
 
 ```json
 200 OK
