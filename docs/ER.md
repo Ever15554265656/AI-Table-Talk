@@ -16,46 +16,49 @@
 erDiagram
     SESSIONS ||--o{ EXPERTS : "拥有席位"
     SESSIONS ||--o{ MESSAGES : "产生发言"
-    SESSIONS ||--o{ CONSENSUS_ITEMS : "沉淀共识/分歧"
+    SESSIONS ||--o{ CONSENSUS_ITEMS : "沉淀共识与分歧"
     EXPERTS  ||--o{ MESSAGES : "署名发表"
 
     SESSIONS {
-        string   id           PK "32 位 hex；样例数据用可读 slug"
-        string   topic           "讨论话题，1~200 字符"
-        int      expert_count    "专家人数 2~8（不含主持人）"
-        string   status          "created | live | ended"
-        datetime created_at      "UTC，ISO8601"
+        string   id           PK "32 位 hex 或 slug"
+        string   topic           "讨论话题"
+        int      expert_count    "专家人数 2-8"
+        string   status          "created / live / ended"
+        datetime created_at      "UTC 时间"
     }
 
     EXPERTS {
-        string  id          PK "32 位 hex；样例为 {session_id}-p{NN}"
-        string  session_id  FK "sessions.id，ON DELETE CASCADE"
-        string  name           "姓名，同场唯一，<=32"
-        string  profession     "职业，如「组织行为学」"
-        string  title          "头衔，如「某高校副教授」"
-        string  stance         "立场一句话，<=200"
-        string  color          "席位专属色，#RRGGBB，同场唯一"
-        boolean is_host        "true=主持人；主持人也落库、也是可见角色"
+        string  id          PK "hex 或席位 id"
+        string  session_id  FK "sessions.id"
+        string  name           "姓名 同场唯一"
+        string  profession     "职业"
+        string  title          "头衔"
+        string  stance         "立场"
+        string  color          "席位色 RRGGBB"
+        boolean is_host        "主持人标记"
     }
 
     MESSAGES {
-        string   id         PK "32 位 hex；样例为 {session_id}-m{NN}"
-        string   session_id FK "sessions.id，ON DELETE CASCADE"
-        string   expert_id  FK "experts.id，ON DELETE CASCADE"
-        text     content       "可见发言正文（1~2 句）"
-        int      round         "发言轮次，从 1 开始，同场唯一"
-        datetime created_at    "UTC"
+        string   id         PK "hex 或发言 id"
+        string   session_id FK "sessions.id"
+        string   expert_id  FK "experts.id"
+        text     content       "发言正文"
+        int      round         "轮次 同场唯一"
+        datetime created_at    "UTC 时间"
     }
 
     CONSENSUS_ITEMS {
-        string   id         PK "32 位 hex；样例为 {session_id}-c{NN}"
-        string   session_id FK "sessions.id，ON DELETE CASCADE"
-        string   type          "agree（共识）| disagree（分歧）"
-        text     content        "条目内容，自然语言"
-        json     expert_ids     "相关专家 id 数组（服务端校验归属本场）"
-        datetime created_at     "UTC"
+        string   id         PK "hex 或条目 id"
+        string   session_id FK "sessions.id"
+        string   type          "agree / disagree"
+        text     content        "自然语言条目"
+        json     expert_ids     "专家 id 数组"
+        datetime created_at     "UTC 时间"
     }
 ```
+
+> 图内注释只保留短语（避免 mermaid 解析器对 `|`、`{}`、`<>` 等字符敏感）；
+> 字段长度上限、约束与样例 id 规则见 §2 与 §5 的表格。
 
 ---
 
