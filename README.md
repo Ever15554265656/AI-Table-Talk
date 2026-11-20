@@ -145,7 +145,7 @@ DEEPSEEK_MODEL=deepseek-chat
 │  ├─ init_db.py           # 兼容入口（转调 backend.seeds）
 │  ├─ clean_sessions.py    # 清理历史会话（--keep N / --yes）
 │  └─ ui_smoke.mjs         # 无头 Edge 冒烟（可选）
-├─ docs/                   # PRD / API 契约 / ER 图 / Prompt 记录 / 需求清单
+├─ docs/                   # PRD / API 契约 / ER 图 / Prompt 记录 / 开发工作流
 ├─ e2e/                    # Playwright 浏览器级用例（可选）
 └─ data/app.db             # SQLite 数据库（不入库）
 ```
@@ -205,6 +205,7 @@ python scripts/clean_sessions.py --yes      # 跳过确认（脚本/CI）
 | [`docs/ER.md`](./docs/ER.md) | mermaid ER 图、四张表结构与约束、状态机、多讨论隔离规则 |
 | [`docs/API.md`](./docs/API.md) | REST + SSE 契约（六种事件）；**未实现的端点统一标注「规划中」** |
 | [`docs/PROMPTS.md`](./docs/PROMPTS.md) | 按 SDD / DDD / TDD / E2E 四范式记录的 7 段真实开发指令与修正过程 |
+| [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | 开发工作流：四阶段目标/产物/门禁、日常改动顺序、各阶段检查清单 |
 
 <!-- 此处可替换截图：演播厅直播态（发言流 + 专家状态 + 共识分歧 + 阶段进度条） -->
 <!-- ![演播厅截图](docs/screenshot-studio.png) -->
