@@ -108,17 +108,19 @@ Content-Type: application/json
 
 约定：`experts` 顺序为**主持人在前**（`is_host DESC`, `id ASC`）；`expert_total = expert_count + 1`。
 
-### 3.2 状态迁移端点
+### 3.2 状态迁移端点（规划中，未实现）
 
 | 端点 | 允许的前置状态 | 结果 | 失败 |
 |---|---|---|---|
-| `POST /confirm` | `created` | `live`，启动调度器 | 已在 `live`/`ended` → `409 INVALID_STATUS_TRANSITION` |
-| `POST /pause` | `live` | 暂停产出（仍保持 `live`） | 非 `live` → `409` |
-| `POST /resume` | `live`（暂停中） | 恢复产出 | 未暂停 → `409` |
-| `POST /end` | `live` | `ended`，生成总结并通过 `done` 下发 | 非 `live` → `409` |
-| `POST /regenerate` | `created` | 替换阵容（颜色重新分配） | 非 `created` → `409` |
+| `POST /confirm`（规划中） | `created` | `live`，启动调度器 | 已在 `live`/`ended` → `409 INVALID_STATUS_TRANSITION` |
+| `POST /pause`（规划中） | `live` | 暂停产出（仍保持 `live`） | 非 `live` → `409` |
+| `POST /resume`（规划中） | `live`（暂停中） | 恢复产出 | 未暂停 → `409` |
+| `POST /end`（规划中） | `live` | `ended`，生成总结并通过 `done` 下发 | 非 `live` → `409` |
+| `POST /regenerate`（规划中） | `created` | 替换阵容（颜色重新分配） | 非 `created` → `409` |
 
-四个端点均返回更新后的 `SessionDetail`，前端直接替换本地缓存，**不需要**额外 GET。
+> 当前版本没有上述写端点：`created → live` 由前端确认门 + 连接 SSE 触发；「暂停/继续」只冻结前端
+> 打字机渲染，讨论仍会走完并发 `done`；结束由讨论自然走完。调用这些路径会得到 404/405。
+> 未来补齐时，五个端点均返回更新后的 `SessionDetail`，前端直接替换本地缓存，**不需要**额外 GET。
 
 ### 3.3 `GET /api/sessions/{id}/messages?after_round=7`
 

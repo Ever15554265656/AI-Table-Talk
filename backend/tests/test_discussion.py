@@ -98,9 +98,11 @@ async def test_typing_event_precedes_every_speech(db, seeded):
 
 
 async def test_consensus_is_refreshed_every_n_messages(db, seeded):
-    """每 N 条发言刷新一次共识，两类条目各推一次且 ``revision`` 递增。"""
+    """共识/分歧在讨论中途增量推送（不是等到结束才生成）。"""
     events = await _collect(db, seeded)
     consensus = [event for event in events if event.event == "consensus"]
+    messages = [event for event in events if event.event == "message"]
+    done_index = next(index for index, event in enumerate(events) if event.event == "done")
 
     assert consensus, "必须提炼出共识事件"
     assert {event.data.type.value for event in consensus} == {"agree", "disagree"}
@@ -110,6 +112,15 @@ async def test_consensus_is_refreshed_every_n_messages(db, seeded):
     assert all(
         item.content.strip() for event in consensus for item in event.data.items
     )
+    # 实时性：第一次刷新必须早于「最后一条发言」，即讨论进行中就已经推过
+    first_consensus = next(
+        index for index, event in enumerate(events) if event.event == "consensus"
+    )
+    last_message = max(
+        index for index, event in enumerate(events) if event.event == "message"
+    )
+    assert first_consensus < last_message < done_index, "共识必须实时推送，不能只在结束时生成"
+    assert messages, "共识刷新时场上必须已有发言"
 
 
 async def test_panelist_states_cycle_preparing_speaking_idle(db, seeded):
@@ -138,6 +149,9 @@ async def test_panelist_states_cycle_preparing_speaking_idle(db, seeded):
             for panelist in data.panelists
             if panelist not in speaking
         )
+        # 公开关注点（思考摘要）必须随状态一起下发，前端状态小窗才有内容可显示
+        for panelist in speaking:
+            assert panelist.focus and panelist.focus.strip(), "发言/准备席位必须带 focus"
 
 
 async def test_done_event_carries_summary_and_real_counts(db, seeded):

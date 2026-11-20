@@ -74,9 +74,11 @@ Copy-Item .env.example .env
 ### 3. 启动前后端
 
 ```bash
-# 终端 A：建表（含演示数据）+ 启动后端（Mock 模式）
-python scripts/init_db.py
+# 终端 A：建表 + 写入样例数据（6 场预设讨论），再启动后端（Mock 模式）
+python -m backend.seeds
 uvicorn backend.main:app --reload --port 8000
+
+# 兼容旧文档：python scripts/init_db.py（与上面完全等价，含 --reset）
 
 # 终端 B：启动前端（/api 已代理到 127.0.0.1:8000）
 cd frontend
@@ -129,6 +131,7 @@ DEEPSEEK_MODEL=deepseek-chat
 │  ├─ stream.py            # SSE 广播中枢（backlog + seq 水位，支持重连不重复）
 │  ├─ topics.py            # 议题域识别 / 席位方案 / 立场标签
 │  ├─ arguments.py         # 议题参数化的论证链（分层 + 句式库 + 关键判断词）
+│  ├─ seeds.py             # 样例数据与建库脚本（python -m backend.seeds）
 │  ├─ llm.py               # LLM 客户端：Mock 生成器 + DeepSeek 调用
 │  ├─ flows/               # 阵容 / 举手调度 / 均衡轮转 / 开场 / 发言 / 共识 / 总结 / 解析
 │  ├─ routers/             # sessions / experts / messages / insights / stream
@@ -139,10 +142,10 @@ DEEPSEEK_MODEL=deepseek-chat
 │  ├─ src/composables/     # useDiscussionStream（SSE 归约 + 打字机 + 断点续播）
 │  └─ src/api/client.js    # REST 客户端（唯一出口，字段不做改名）
 ├─ scripts/
-│  ├─ init_db.py           # 建表 + 演示数据
+│  ├─ init_db.py           # 兼容入口（转调 backend.seeds）
 │  ├─ clean_sessions.py    # 清理历史会话（--keep N / --yes）
 │  └─ ui_smoke.mjs         # 无头 Edge 冒烟（可选）
-├─ docs/                   # PRD / API 契约 / ER 图 / 需求清单
+├─ docs/                   # PRD / API 契约 / ER 图 / Prompt 记录 / 需求清单
 ├─ e2e/                    # Playwright 浏览器级用例（可选）
 └─ data/app.db             # SQLite 数据库（不入库）
 ```
@@ -152,7 +155,7 @@ DEEPSEEK_MODEL=deepseek-chat
 全部自动化测试都在 **MOCK 模式**下运行：不占端口、不出网、零模型调用。
 
 ```bash
-# 后端单测 + E2E（当前 153 条，含 8 条全链路用例与 6 条降级/超时用例）
+# 后端单测 + E2E（当前 157 条：含 9 条全链路、6 条降级/超时、1 条并行隔离、2 条样例数据）
 python -m pytest backend/tests -q
 
 # 只跑全链路 E2E
@@ -172,7 +175,8 @@ python -m pytest backend/tests/test_e2e_flow.py -q
 | 3' 反驳 | 指名道姓、只复述 ≤10 字判断词、与上一条发言无 12 字以上重合片段 |
 | 3'' 实时流 | `typing` 与 `message` 一一对应、`seq` 连续、六种事件齐全、`done` 收尾 |
 | 4 结束 | 状态 `ended`、总结含共识/分歧、共识分歧落库且可追溯到真实发言人、条数与库一致 |
-| 5 回看 | 重复订阅只回放既有事件；LLM 调用记录为空（零生成）；写入口被拒绝；状态仍为 `ended` |
+| 4' 可读性 | 发言与总结为纯文本（无 JSON）、同席位颜色恒定且互斥、正文不出现举手/调度等内部词 |
+| 5 回看 | 重复订阅只回放既有事件；LLM 调用记录为空（零生成）；写入口被拒绝；状态仍为 `ended`；收尾发言可切出 ≥3 段总结 |
 | 6 中断恢复 | 模拟重启（清空进程内任务表与广播中枢）后从既有进度续播：不重放开场、已发发言原样保留、只为新发言发 `typing` |
 
 可选（需要本机浏览器，默认复用 Edge，非必需）：
@@ -191,6 +195,16 @@ python scripts/clean_sessions.py --yes      # 跳过确认（脚本/CI）
 ```
 
 只删「会话 / 席位 / 发言 / 共识」数据，不改表结构。
+
+## 文档索引
+
+| 文档 | 内容 |
+|---|---|
+| [`README.md`](./README.md) | 定位、特性、技术栈、三步运行、双模式、测试与数据清理（本文） |
+| [`docs/PRD.md`](./docs/PRD.md) | 产品定位、用户画像与核心诉求、范围界定、功能需求（R1–R9）与验收标准 |
+| [`docs/ER.md`](./docs/ER.md) | mermaid ER 图、四张表结构与约束、状态机、多讨论隔离规则 |
+| [`docs/API.md`](./docs/API.md) | REST + SSE 契约（六种事件）；**未实现的端点统一标注「规划中」** |
+| [`docs/PROMPTS.md`](./docs/PROMPTS.md) | 按 SDD / DDD / TDD / E2E 四范式记录的 7 段真实开发指令与修正过程 |
 
 <!-- 此处可替换截图：演播厅直播态（发言流 + 专家状态 + 共识分歧 + 阶段进度条） -->
 <!-- ![演播厅截图](docs/screenshot-studio.png) -->

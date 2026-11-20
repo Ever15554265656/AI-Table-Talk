@@ -245,6 +245,39 @@ async def test_debate_rebuts_by_name_without_copying(db):
             assert len(_longest_common(rest, previous.content)) <= arguments.KEY_CLAIM_LIMIT
 
 
+async def test_transcript_is_plain_text_colored_and_clean(db):
+    """镜头里的三件事：发言是纯文本（无 JSON）、每人颜色稳定且互斥、不出现内部事件词。"""
+    detail = await _create_session(GUESTS)
+    events = await _run_stream(detail["id"])
+    messages = [event.data.message for event in events if event.event == "message"]
+    done = events[-1]
+
+    # 1) 纯文本：Transcript 与总结都不能夹带 JSON / 结构化片段
+    for item in messages:
+        assert not re.search(r"\{\s*[\"}\[]", item.content), item.content
+        assert not item.content.lstrip().startswith(("{", "[")), item.content
+    for section in done.data.summary.sections:
+        assert not re.search(r"\{\s*[\"}\[]", section.body), section.body
+    last = messages[-1]
+    assert last.expert_id == next(e["id"] for e in detail["experts"] if e["is_host"])
+    # 收尾发言就是总结正文（三段用空行分隔），前端可直接按段落渲染成自然语言
+    assert last.content == "\n\n".join(section.body for section in done.data.summary.sections)
+
+    # 2) 颜色：同一位发言人颜色恒定，不同席位颜色互斥（全部来自后端）
+    colors: dict[str, set[str]] = {}
+    for item in messages:
+        colors.setdefault(item.expert_id, set()).add(item.expert_color)
+    assert all(len(values) == 1 for values in colors.values()), colors
+    palette = [next(iter(values)) for values in colors.values()]
+    assert len(set(palette)) == len(palette), "不同席位不能撞色"
+    assert all(re.fullmatch(r"#[0-9A-Fa-f]{6}", color) for color in palette)
+
+    # 3) 内部事件不外泄：举手 / 抢答 / 调度 / state 等词不能出现在发言正文
+    forbidden = ("举手", "抢答", "调度", "intent", "preparing", "speaking")
+    text = "".join(item.content for item in messages)
+    assert not any(word in text for word in forbidden), text
+
+
 async def test_stream_emits_typing_before_every_message(db):
     """讨论中：SSE 序列里 typing 与 message 一一对应，序号连续，done 收尾。"""
     detail = await _create_session(GUESTS)

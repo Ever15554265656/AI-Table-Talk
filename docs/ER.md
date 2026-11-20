@@ -5,7 +5,7 @@
 | 版本 | v1.0（对应 SDD 阶段） |
 | 数据库 | SQLite（`data/app.db`，可用 `DATABASE_URL` 覆盖） |
 | ORM | SQLAlchemy 2.x 声明式映射（`backend/models.py`） |
-| 建表脚本 | `scripts/init_db.py`（`python scripts/init_db.py --reset`） |
+| 建表脚本 | `backend/seeds.py`（`python -m backend.seeds`，`--reset` 可重建；`scripts/init_db.py` 为兼容入口） |
 | 关联契约 | [`API.md`](./API.md)、[`PRD.md`](./PRD.md) |
 
 ---
@@ -142,6 +142,10 @@ stateDiagram-v2
 
 > PRD 中的 `casting`（正在生成阵容）属于**请求内的瞬时态**，不落库；生成失败直接以 4xx/5xx 返回，
 > 讨论不会停留在半成品状态。
+>
+> 图中 `/regenerate`、`/confirm`、`/pause`、`/resume`、`/end` 为**规划中的端点（未实现）**：
+> 当前版本由前端「确认阵容」门 + 连接 SSE 触发 `created → live`，暂停只冻结前端打字机，
+> 讨论会自行走完并发 `done`。
 
 ### 3.1 席位状态（三维之一，仅用于实时状态事件）
 
@@ -202,7 +206,7 @@ SDD 阶段按本轮确认的「四表最小字段集」落地。以下字段在 
 
 ---
 
-## 7. 样例数据覆盖（`scripts/init_db.py`）
+## 7. 样例数据覆盖（`backend/seeds.py`）
 
 | 场次 id | 话题 | 状态 | 专家数 | 发言 | 共识/分歧 |
 |---|---|---|---|---|---|

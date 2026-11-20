@@ -348,7 +348,12 @@ async def run_discussion(
             await _pause(settings.typing_seconds)
             publish(
                 envelope.status(
-                    _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+                    _panelists(
+                        experts,
+                        speaking=host,
+                        state=PanelistState.SPEAKING,
+                        focus="介绍议题与在场嘉宾",
+                    )
                 )
             )
             await _pause(settings.think_interval_seconds)
@@ -436,7 +441,12 @@ async def run_discussion(
             await _pause(settings.typing_seconds)
             publish(
                 envelope.status(
-                    _panelists(experts, speaking=speaker, state=PanelistState.SPEAKING)
+                    _panelists(
+                        experts,
+                        speaking=speaker,
+                        state=PanelistState.SPEAKING,
+                        focus=decision.focus,
+                    )
                 )
             )
             # 思考停顿：发言中状态要真的「看得见」，而不是瞬间闪一下
@@ -490,7 +500,12 @@ async def run_discussion(
             summary = await summary_flow.generate_summary(db, session, client=llm)
             publish(
                 envelope.status(
-                    _panelists(experts, speaking=host, state=PanelistState.SPEAKING)
+                    _panelists(
+                        experts,
+                        speaking=host,
+                        state=PanelistState.SPEAKING,
+                        focus="汇总共识与分歧",
+                    )
                 )
             )
             closing = _save_message(db, session, host, summary_flow.summary_text(summary))
