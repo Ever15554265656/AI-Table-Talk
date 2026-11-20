@@ -7,7 +7,7 @@
 | 文档状态 | 基线（Baseline）——后续变更以 ADR 追加，不直接改写本文已定稿的 AC 编号 |
 | 技术栈基线 | FastAPI + Pydantic v2 + SQLAlchemy 2.x + SQLite；React 18 + Vite + TypeScript + TailwindCSS；pytest + Playwright |
 | 实际实现 | 后端同基线；前端为 **Vue 3 + Vite + Element Plus（纯 JavaScript，无 TS/lint 门禁）**（详见根目录 README「测试」节） |
-| 关联文档 | [`ER.md`](./ER.md)（数据模型）、[`API.md`](./API.md)（接口契约）、[`PROMPTS.md`](./PROMPTS.md)（Prompt 记录）、[`WORKFLOW.md`](./WORKFLOW.md)（开发工作流）、根目录 [`README.md`](../README.md)（运行与测试）；`DECISIONS.md` 为规划中、尚未落地 |
+| 关联文档 | [`ER.md`](./ER.md)（数据模型）、[`API.md`](./API.md)（接口契约）、[`PROMPTS.md`](./PROMPTS.md)（Prompt 记录）、[`WORKFLOW.md`](./WORKFLOW.md)（开发过程说明）、根目录 [`README.md`](../README.md)（运行与测试）；`DECISIONS.md` 为规划中、尚未落地 |
 | 读者 | 开发者、产品/技术评审 |
 
 > 本文的唯一目的：**把产品需求逐条翻译成可执行、可验收、可追溯的条目**。所有条目均带唯一 ID（R / AC / C），任何后续实现、测试用例、提交记录都应能回指到具体 ID。

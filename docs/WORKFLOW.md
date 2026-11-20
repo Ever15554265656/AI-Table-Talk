@@ -1,83 +1,67 @@
-# 开发工作流（SDD → DDD → TDD → E2E）
+# 开发过程说明：我如何用 AI 做这个项目
 
-本项目按四个开发范式分阶段推进：先把「契约与数据」定死，再让「页面与组件」跟着领域模型长出来，
-然后用测试锁住行为，最后用端到端链路验证真实用户体验。本文件说明每一阶段的**输入 / 产出 / 门禁**，
-以及日常改动时的执行顺序，供后续维护与评审对照。
+## 一、我是怎么用 AI 开发这个项目的
 
----
+我用 Cline + DeepSeek，全程 `MOCK_MODE=true`，按四个阶段推进，每阶段只给 AI 一个能验收的目标。
 
-## 1. 阶段总览
+**SDD**（`5a1f013`、`beedbe1`）：先表结构与 SSE 信封，再出入参，最后写实现；字段必须同时出现在 `API.md` 与 `ER.md`，验收 `test_routers.py`/`test_stream.py` 加人工对文档。AI 曾把 SSE 写成两套字段，我打回重写。
 
-| 阶段 | 目标 | 主要产物 | 进入下一阶段的门禁 |
-|---|---|---|---|
-| **SDD**（Spec/契约驱动） | 把需求翻译成可验收的契约与数据模型 | `docs/PRD.md`、`docs/ER.md`、`docs/API.md`、`backend/models.py`、`backend/schemas.py` | 契约能自洽：REST 出入参、SSE 事件、数据库字段三处对得上 |
-| **DDD**（领域/展示驱动） | 按领域拆页面与组件，让状态流可见 | `backend/topics.py`、`backend/arguments.py`、`frontend/src/views/*`、`frontend/src/components/*` | 页面只读后端字段，前端不自行取色、不渲染内部事件 |
-| **TDD**（测试先行） | 用可断言的行为锁住核心逻辑 | `backend/tests/test_*.py`（路由 / 流程 / 调度 / 发言 / 共识） | 用例零网络、零等待，`pytest` 全绿 |
-| **E2E**（系统级验证） | 校验真实 HTTP/SSE 链路的完整生命周期 | `backend/tests/test_e2e_flow.py`、`scripts/ui_smoke.mjs`、`e2e/`（可选） | 创建→开演→讨论→结束→回看→中断恢复 全部通过 |
+**DDD**（`4cc8b36`、`84c2b38`、`89b82fd`）：颜色只读后端、Transcript 只渲染姓名+职业+正文、主持人/专家同尺寸；验收 `npm run build` 加我自己点页面。AI 把“举手”渲染进气泡，我指着 `SpeakerBubble.vue` 要求删掉。
 
-> 阶段顺序不是形式：契约一旦变化，先改 SDD 产物，再让 DDD/TDD/E2E 跟上；反过来会留下「文档说一套、代码做一套」的漂移。
+**TDD**（`be49125`）：测试零网络零等待（间隔 0、固定种子），验收 `pytest` 全绿；失败就贴断言要根因，不许删测试。
 
----
+**E2E**（`af11dc0`）：`httpx` 走真实 HTTP/SSE，回看必须证明零生成，6 个场景 30 秒内。后续修补（`a5e1c4e`、`7179944`、`63c12a2`、`4e82baa`、`490cd9d`）同节奏。
 
-## 2. 日常改动的执行顺序
+## 二、三个典型问题
 
-1. **先定位契约影响面**：是否需要改 `models.py` / `schemas.py` / `docs/API.md`？
-   - 需要 → 先改契约与文档，再改实现（禁止先写代码后补文档）。
-2. **再写/改测试**（TDD）：先在 `backend/tests/` 里写出会失败的断言，再实现到通过。
-3. **最后补 E2E**：只有当改动跨进程/跨链路（SSE、重启恢复、回看）时才需要加 E2E 用例。
-4. **门禁全绿再提交**：
-   ```bash
-   python -m pytest backend/tests -q   # 后端单测 + E2E（Mock 模式，零模型调用）
-   cd frontend && npm run build        # 前端构建（当前无 lint/TS 门禁）
-   ```
-5. **提交信息**按类型前缀：`feat:` / `fix:` / `test:` / `docs:` / `chore:`，一条提交只做一件事。
+### 1. 专家发言扎堆、不贴议题
 
----
+**现象**：同一人连说三四轮、有人全程沉默；换题还念“手机/67%”旧素材。
 
-## 3. 环境与数据
+**定位**：`turn_taking.py` 每轮随机点人；`arguments.py` 把案例写死在域表，换题就串。
 
-| 事项 | 做法 |
-|---|---|
-| 运行模式 | 默认 `MOCK_MODE=true`（零成本）；真实模式需关掉该开关并配置 `DEEPSEEK_API_KEY` |
-| 建库与样例 | `python -m backend.seeds`（`--reset` 重建）；`scripts/init_db.py` 为兼容入口 |
-| 清理历史 | `python scripts/clean_sessions.py --keep N` / `--yes` |
-| 测试库 | 测试使用独立临时 SQLite（`conftest.py`），不触碰 `data/app.db` |
-| 真实模式失败 | 单次调用重试 2 次（间隔 1s），仍失败降级 Mock；`done.degraded=true` 并在演播厅顶部提示 |
+**引导修正**：新增 `scheduling.py` 的 `plan_round`（每轮全员一次、相邻轮不同、首位≠上轮末位）；素材改“域机制+场景锚点”，每句带 `{keyword}`，断言写进 `test_arguments.py`。
 
----
+**验证**：`test_scheduling.py::test_speech_counts_are_balanced`、`test_discussion.py::test_speakers_rotate_evenly_by_round`；实测 4 席 12 条 `[3,3,3,3]`，差 0。
 
-## 4. 各阶段的检查清单
+### 2. LLM 超时配置形同虚设
 
-### SDD
-- [ ] 新增字段/事件同时更新 `docs/API.md` 与 `docs/ER.md`；
-- [ ] 未实现的端点必须在文档里标注「规划中」；
-- [ ] SSE 事件信封保持不变（`session_id` / `seq` / `ts` / `data`）。
+**现象**：`LLM_TIMEOUT_SECONDS` 只在 `config.py` 被读取，没有任何调用点用它。
 
-### DDD
-- [ ] 页面文案统一走 `frontend/src/constants.js`；
-- [ ] 颜色只读 `expert.color` / `message.expert_color`；
-- [ ] Transcript 只渲染「姓名 + 职业/Title + 正文」，不出现举手/调度等内部词；
-- [ ] 主持人卡片与专家卡片同结构、同尺寸。
+**定位**：`llm.py` 的 `_ensure_sync_client`/`_ensure_async_client` 构造 `OpenAI`/`AsyncOpenAI` 时只传 `api_key` 与 `base_url`。
 
-### TDD
-- [ ] 用例不依赖真实时钟（`SPEAK/THINK/TYPING` 在测试环境为 0）；
-- [ ] 随机调度注入固定种子；
-- [ ] 断言落在「观众能看到的事实」：条数、归属、顺序、关键词。
+**引导修正**：补 `timeout=self._config.llm_timeout_seconds`；加 3 次尝试（间隔 1 秒）重试，失败降级 Mock、`done.degraded=true`、前端顶部提示，阵容生成同样降级不再 502（`7179944`）。
 
-### E2E
-- [ ] 走真实 HTTP/SSE 路径（`httpx.ASGITransport`），不直接调内部函数；
-- [ ] 用「调用记录为空」证明回看/重连不触发生成；
-- [ ] 中断恢复用例通过清空进程内任务表与广播中枢模拟重启。
+**验证**：`test_llm_fallback.py::test_openai_clients_receive_configured_timeout`（`timeout==12.5`）、`test_sync_stream_retries_then_falls_back_to_mock`。
+
+### 3. AI 把作业需求原文当成交付物提交
+
+**现象**：`5a1f013` 里 AI 还提交了 `docs/REQUIREMENTS.md`（作业原文），PRD 有 9 处引用它（其中 7 条是 `REQUIREMENTS.md Lxx` 行号），标题写成“题目对照表/考察点”。
+
+**定位**：需求是输入不是交付物；行号引用会让 PRD 随原文漂移。grep `REQUIREMENTS`、`wisquest` 列出全部命中。
+
+**引导修正**：立规矩“AI 只改实现与项目文档，永不改需求与验收标准”；删文件、删 PRD 的 7 条来源行与 `Lxx` 引用，把“题目/考察点”改成“需求总览/设计要点”，补 §6–§11 索引（`4e82baa`）。
+
+**验证**：grep `REQUIREMENTS` 只剩 `README` 的 `requirements.txt`，`wisquest` 0；`docs/` 只剩 5 个文档。
+
+## 三、我对“工程化 AI 开发”的理解
+
+我不信“一句提示词生成整个项目”：拆成阶段，每步才可验收。测试是最硬的约束——`timeout==12.5` 就是 12.5，`done.degraded is True` 就是 True，`test_isolation_backend.py` 两场并发串一场就红。
+
+AI 还会犯人不常犯的错：配置写了没接上、提交信息留占位符、把需求当交付物、注释写成半句（`ER.md` 的 `created | live | ended` 让 GitHub Mermaid 失败）。这靠我查引用、查仓库、把图真的渲染一遍。
+
+分工：AI 写实现与测试，我定验收、查边界、做复核；AI 提速的是产出，不是判断。
 
 ---
 
-## 5. 交付物索引
+## 附录：各阶段检查清单（压缩）
 
-| 类别 | 文件 |
-|---|---|
-| 产品需求 | [`PRD.md`](./PRD.md)（定位 / 用户画像 / 功能需求与验收标准） |
-| 数据模型 | [`ER.md`](./ER.md)（mermaid ER 图 + 表结构约束） |
-| 接口契约 | [`API.md`](./API.md)（REST + 六种 SSE 事件；未实现端点标注「规划中」） |
-| Prompt 记录 | [`PROMPTS.md`](./PROMPTS.md)（四范式 7 段，含背景/挑战/修正） |
-| 运行与测试 | 根目录 [`README.md`](../README.md) |
-| 工作流 | 本文件 |
+- **SDD**：字段/事件同步 `API.md` 与 `ER.md`；未实现端点标“规划中”；SSE 信封不变。
+- **DDD**：文案走 `constants.js`；颜色只读后端；Transcript 不含内部词；卡片同结构。
+- **TDD**：不依赖真实时钟；固定种子；断言落在条数/归属/顺序/关键词。
+- **E2E**：`httpx` 走真实链路；用调用记录为空证明回看不生成；重启用清空任务表模拟。
+
+```bash
+python -m pytest backend/tests -q     # 157 条，Mock 模式
+cd frontend && npm run build
+```
